@@ -2,10 +2,11 @@
 # runtime-self-test.sh — VPS-free end-to-end tests for the automation runtime:
 #   (a) run-task.sh happy path through a mock coding-agent router
 #   (b) run-task.sh limit → park → resume path (agent=kimi envelope)
-#   (c) dispatch.sh dependency eligibility + concurrency cap + batch merge (mock tmux)
+#   (c) dispatch.sh dependency eligibility + concurrency cap + machine gating,
+#       and confirmation that it NEVER merges (workers never merge)
 #   (d) coding-agent.sh profiles (claude/kimi) via fake CLI binaries
-#   (e) cancel-task.sh: kill running (mock tmux), cascade to dependents, --all,
-#       cancelled batches (all-cancelled → flagged, partial → merge done branches)
+#   (e) cancel-task.sh: kill running (mock tmux), cascade to dependents, --all
+#   (f) merge-batch.sh author-side finalization against a mock git remote
 # Everything runs in temp dirs (temp git repos with a copied automation/ tree, temp HOME
 # for run-task state). No VPS, no real CLIs, no network. Safe on macOS bash 3.2.
 set -uo pipefail
@@ -124,8 +125,8 @@ grep -q 'agent=kimi mode=resume sessid=sess-123' "$T/calls-b" 2>/dev/null && ok 
 grep -q 'limit park 1s' "$R2/automation/state/t-limit.notes" 2>/dev/null && ok "b: notes: limit park line" || bad "b: notes: limit park line"
 check "b: attempts = 2" "$(wc -l < "$T/calls-b" | tr -d ' ')" "2"
 
-# ----------------------------- (c) dispatch eligibility + dependencies + batch merge
-echo "== (c) dispatch.sh eligibility, concurrency cap, batch merge =="
+# ----------------------------- (c) dispatch eligibility + concurrency + machine gating
+echo "== (c) dispatch.sh eligibility, concurrency cap, machine gating, NO merge =="
 R3="$T/repo-c"; make_repo "$R3"
 # Task branches with real (tiny, conflict-free) commits off dev.
 for t in A B C; do
@@ -176,14 +177,38 @@ echo done > "$R3/automation/state/B"
 tick 2 >"$T/c3.out" 2>&1   # deps satisfied → C launches
 check "c: tick3 launches C once deps done" "$(tail -1 "$T/tmux-calls")" "task-C"
 
-echo done > "$R3/automation/state/C"      # whole batch done → merge tick
+echo done > "$R3/automation/state/C"      # whole batch done — but workers never merge
 tick 2 >"$T/c4.out" 2>&1
-check "c: batch state = merged" "$(cat "$R3/automation/state/batch-b1" 2>/dev/null)" "merged"
+[ -f "$R3/automation/state/batch-b1" ] && bad "c: worker wrote a batch merge state (must not)" || ok "c: worker wrote a batch merge state (must not)"
 for t in A B C; do
-  [ -f "$R3/file-$t.txt" ] && ok "c: branch $t landed on dev" || bad "c: branch $t landed on dev"
+  [ -f "$R3/file-$t.txt" ] && bad "c: branch $t landed on dev (worker must not merge)" || ok "c: branch $t not landed on dev"
 done
-grep -q 'merged: 3 task branches -> dev' "$R3/automation/state/batch-b1.notes" 2>/dev/null && ok "c: batch notes merged line" || bad "c: batch notes merged line"
-check "c: merge tick launched nothing" "$(wc -l < "$T/tmux-calls" | tr -d ' ')" "3"
+check "c: done tick launched nothing" "$(wc -l < "$T/tmux-calls" | tr -d ' ')" "3"
+
+# Machine gating (separate repo): no .machine → unassigned tasks launch, mismatched
+# .worker is skipped; role=author dispatches nothing; matching id launches the task.
+R3B="$T/repo-c2"; make_repo "$R3B"
+cat > "$R3B/automation/tasks/M1.json" <<'EOF'
+{"id":"M1","branch":"automation/M1","prompt_file":"automation/prompts/M1.md"}
+EOF
+cat > "$R3B/automation/tasks/M2.json" <<'EOF'
+{"id":"M2","worker":"other-box","branch":"automation/M2","prompt_file":"automation/prompts/M2.md"}
+EOF
+for t in M1 M2; do echo "prompt $t" > "$R3B/automation/prompts/$t.md"; done
+git -C "$R3B" add -A; git -C "$R3B" commit -qm "gating fixtures"
+tick2() { MOCK_TMUX_CALLS="$T/tmux-calls" PATH="$T:$PATH" FL_MAX_CONCURRENCY=2 bash "$R3B/automation/dispatch.sh"; }
+: > "$T/tmux-calls"
+tick2 >"$T/c5.out" 2>&1   # default: role=worker, id=hostname → M1 launches, M2 skipped
+check "c: unassigned task launches (no .machine)" "$(cat "$T/tmux-calls")" "task-M1"
+mkdir -p "$R3B/automation/state"
+printf 'role=author\nid=hostbox\n' > "$R3B/automation/state/.machine"
+: > "$T/tmux-calls"
+tick2 >"$T/c6.out" 2>&1   # role=author → nothing dispatches
+check "c: role=author dispatches nothing" "$(wc -l < "$T/tmux-calls" | tr -d ' ')" "0"
+printf 'role=worker\nid=other-box\n' > "$R3B/automation/state/.machine"
+echo done > "$R3B/automation/state/M1"
+tick2 >"$T/c7.out" 2>&1   # id matches → assigned task launches
+check "c: matching worker id launches assigned task" "$(cat "$T/tmux-calls")" "task-M2"
 
 # ------------------------------------------------------- (d) coding-agent.sh profiles
 echo "== (d) coding-agent.sh profiles (fake CLIs) =="
@@ -290,17 +315,54 @@ grep -q "is 'done' — nothing to cancel" "$T/e2.out" 2>/dev/null && ok "e: done
 cancel_e Q superseded >"$T/e3.out" 2>&1
 check "e: pending task cancelled" "$(cat "$R4/automation/state/Q")" "cancelled"
 
-tick_e >"$T/e4.out" 2>&1   # only X is still dispatchable; batches settle below
+tick_e >"$T/e4.out" 2>&1   # only X is still dispatchable; batches are NOT touched by workers
 check "e: dispatch skips cancelled, launches X" "$(grep -c 'task-X' "$T/tmux-calls-e")" "1"
-check "e: all-cancelled batch flagged" "$(cat "$R4/automation/state/batch-b2" 2>/dev/null)" "cancelled"
-check "e: partial batch merged" "$(cat "$R4/automation/state/batch-b3" 2>/dev/null)" "merged"
-[ -f "$R4/file-P.txt" ] && ok "e: done branch landed despite cancelled sibling" || bad "e: done branch landed despite cancelled sibling"
-grep -q 'merged: 1 task branches -> dev' "$R4/automation/state/batch-b3.notes" 2>/dev/null && ok "e: merge notes count done only" || bad "e: merge notes count done only"
+[ -f "$R4/automation/state/batch-b2" ] && bad "e: worker wrote batch state for all-cancelled batch (must not)" || ok "e: worker wrote batch state for all-cancelled batch (must not)"
+[ -f "$R4/automation/state/batch-b3" ] && bad "e: worker wrote batch state for partial batch (must not)" || ok "e: worker wrote batch state for partial batch (must not)"
+[ -f "$R4/file-P.txt" ] && bad "e: worker merged a done branch (must not)" || ok "e: worker merged a done branch (must not)"
 
 cancel_e --all cleanup >"$T/e5.out" 2>&1
 check "e: --all cancels remaining pending" "$(cat "$R4/automation/state/X")" "cancelled"
 tick_e >"$T/e6.out" 2>&1
 check "e: nothing left to launch" "$(wc -l < "$T/tmux-calls-e" | tr -d ' ')" "2"
+
+# ------------------------------------------- (f) merge-batch.sh author-side finalization
+echo "== (f) merge-batch.sh (author-side batch finalization) =="
+R5="$T/repo-f"; make_repo "$R5"
+ORIGIN="$T/origin-f"; git -C "$R5" init -q --bare "$ORIGIN"
+git -C "$R5" remote add origin "$ORIGIN"
+git -C "$R5" push -q origin dev
+# Task branches off dev; T1/T2 carry a (done) report, T3 has NO report (still running).
+for t in T1 T2 T3; do
+  git -C "$R5" checkout -qb "automation/$t" dev
+  echo "$t" > "$R5/file-$t.txt"
+  if [ "$t" != T3 ]; then
+    mkdir -p "$R5/automation/reports"
+    printf '# Report — %s (done)\n- Attempts: 1\n- Finished: now\n' "$t" > "$R5/automation/reports/$t.md"
+  fi
+  git -C "$R5" add -A; git -C "$R5" commit -qm "task $t"
+  git -C "$R5" push -q origin "automation/$t"
+done
+git -C "$R5" checkout -q dev
+for t in T1 T2 T3; do
+  cat > "$R5/automation/tasks/$t.json" <<EOF
+{"id":"$t","batch":"b1","branch":"automation/$t","prompt_file":"automation/prompts/$t.md"}
+EOF
+done
+cat > "$R5/automation/batches/b1.json" <<'EOF'
+{"id":"b1","title":"merge batch","notes":"","tasks":["T1","T2","T3"],"merge_target":"dev"}
+EOF
+git -C "$R5" add -A; git -C "$R5" commit -qm "merge fixtures"
+git -C "$R5" push -q origin dev
+
+bash "$R5/automation/merge-batch.sh" b1 >"$T/f.out" 2>&1
+check "f: merge-batch exits 0" "$?" "0"
+[ -f "$R5/file-T1.txt" ] && ok "f: T1 branch landed on dev" || bad "f: T1 branch landed on dev"
+[ -f "$R5/file-T2.txt" ] && ok "f: T2 branch landed on dev" || bad "f: T2 branch landed on dev"
+[ -f "$R5/file-T3.txt" ] && bad "f: T3 landed despite no done report (must not)" || ok "f: T3 not landed (no done report)"
+grep -q 'skipped 1' "$T/f.out" 2>/dev/null && ok "f: skipped task reported" || bad "f: skipped task reported"
+git -C "$R5" fetch -q origin
+git -C "$R5" show "origin/dev:file-T1.txt" >/dev/null 2>&1 && ok "f: merge pushed to origin/dev" || bad "f: merge pushed to origin/dev"
 
 echo
 echo "runtime-self-test: $PASS passed, $FAIL failed"

@@ -4,11 +4,13 @@
 # whatever signals the current machine actually has. It NEVER mutates anything.
 #
 # Environment auto-detect (the author asked for one command that adapts, not two):
-#   - WORKER mode: automation/state/<id> live flags and ~/.local/state/automation/<id>/run.log
-#     exist (the VPS that runs run-task.sh). Shows live running/attempt/checkpoint detail,
-#     per-task notes tails (state/<id>.notes) and batch runtime state (state/batch-<id>).
-#   - AUTHOR mode: only committed artifacts exist after `git pull` (state/ is gitignored).
-#     State is inferred from reports/<id>.md (H1 encodes done|failed) + tasks/ presence.
+#   - WORKER mode: automation/state/.machine says role=worker, or live state/<id> flags /
+#     ~/.local/state/automation/<id>/run.log exist (the box that runs run-task.sh). Shows
+#     live running/attempt/checkpoint detail, per-task notes tails (state/<id>.notes).
+#   - AUTHOR mode: only committed artifacts exist after `git fetch` (state/ is gitignored).
+#     State is inferred from each task branch's committed automation/reports/<id>.md — read
+#     from the local copy when present, else from `origin/<branch>:automation/reports/<id>.md`
+#     (reports live on the task branches until the author's merge-batch lands them).
 #
 # Batch grouping (envelope schema v2 — every new field optional, old envelopes unchanged):
 #   - envelope "batch": "<id>" groups the task under batches/<id>.json, a committed
@@ -17,10 +19,9 @@
 #     (x/y = done-count/total over the manifest's task list), the manifest notes line,
 #     then member rows (indented 2, same columns) in manifest order; in worker mode a
 #     task's last 2 state/<id>.notes lines follow its row prefixed "note:".
-#   - Batch runtime state state/batch-<id> (one word: merged|merge-conflict, worker mode
-#     only) shows in the header; merge-conflict also surfaces the last line of
-#     state/batch-<id>.notes. Tasks without a batch manifest fall under "(ungrouped)",
-#     rendered exactly like v1 flat rows; with no manifests at all the output is pure v1.
+#   - Legacy batch runtime state state/batch-<id> (merged|merge-conflict) is still rendered
+#     if present (left over from the old worker-merge design), but workers no longer write
+#     it — batch finalization is the author's merge-batch.sh.
 #   - STATE words come from the same task_row logic batched or not: live state in worker
 #     mode, report-H1 inference in author mode, pending fallback.
 #
@@ -32,16 +33,33 @@ set -uo pipefail
 
 FL_AUTO_ROOT="${FL_AUTO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 FL_LOG_ROOT="${FL_LOG_ROOT:-$HOME/.local/state/automation}"
+REPO_ROOT="$(dirname "$FL_AUTO_ROOT")"
 NOW="$(date -u +%s)"
 
-# detect_mode — decide worker vs author from which runtime signals are present locally.
+# detect_mode — decide worker vs author: an explicit .machine role wins, then fall back
+# to which runtime signals are present locally.
 detect_mode() {
   [ -n "${FL_MODE:-}" ] && { echo "$FL_MODE"; return; }
+  local role
+  role="$(sed -n 's/^role=//p' "$FL_AUTO_ROOT/state/.machine" 2>/dev/null | head -1)"
+  [ "$role" = worker ] && { echo worker; return; }
+  [ "$role" = author ] && { echo author; return; }
   if ls "$FL_AUTO_ROOT"/state/* >/dev/null 2>&1 || [ -d "$FL_LOG_ROOT" ]; then
     echo worker
   else
     echo author
   fi
+}
+
+# report_content — the task's report body: local copy if present, else the committed copy
+# on origin/<branch> (reports reach the author only via the task branches until merge).
+report_content() { # <task-json-path> — echo report text; exit 0 if found, 1 if nowhere
+  local tf="$1" id br
+  id="$(jq -r '.id' "$tf")"
+  if [ -f "$FL_AUTO_ROOT/reports/$id.md" ]; then cat "$FL_AUTO_ROOT/reports/$id.md"; return 0; fi
+  br="$(jq -r '.branch // empty' "$tf")"
+  [ -n "$br" ] || return 1
+  git -C "$REPO_ROOT" show "origin/$br:automation/reports/$id.md" 2>/dev/null
 }
 
 # reltime — render a signed epoch delta from NOW as a coarse "in 3h" / "2d ago" string.
@@ -62,9 +80,8 @@ iso_epoch() { date -u -d "$1" +%s 2>/dev/null || gdate -u -d "$1" +%s 2>/dev/nul
 # Args: <task-json-path> <archived:0|1> <mode>
 task_row() {
   local tf="$1" archived="$2" mode="$3"
-  local id type state detail live report att fin ckpt started rl
+  local id type state detail live rc att fin ckpt started rl
   id="$(jq -r '.id' "$tf")"; type="$(jq -r '.type' "$tf")"
-  report="$FL_AUTO_ROOT/reports/$id.md"
   live=""
   [ "$mode" = worker ] && live="$(cat "$FL_AUTO_ROOT/state/$id" 2>/dev/null || echo "")"
 
@@ -75,10 +92,10 @@ task_row() {
     started="$(head -1 "$rl" 2>/dev/null | grep -oE '^\[[^]]*\]' | tr -d '[]')"
     state=running
     detail="attempt=$att; started=${started:-?}; ${ckpt:-no-checkpoint}"
-  elif [ -f "$report" ]; then
-    state="$(grep -m1 -oE '\((done|failed)\)' "$report" | tr -d '()')"; state="${state:-done}"
-    fin="$(grep -m1 'Finished:' "$report" | sed 's/.*Finished: *//')"
-    att="$(grep -m1 'Attempts:' "$report" | sed 's/.*Attempts: *//')"
+  elif rc="$(report_content "$tf")" && [ -n "$rc" ]; then
+    state="$(printf '%s' "$rc" | grep -m1 -oE '\((done|failed)\)' | tr -d '()')"; state="${state:-done}"
+    fin="$(printf '%s' "$rc" | grep -m1 'Finished:' | sed 's/.*Finished: *//')"
+    att="$(printf '%s' "$rc" | grep -m1 'Attempts:' | sed 's/.*Attempts: *//')"
     detail="attempts=${att:-?}; finished=${fin:-?}"
     [ -n "$live" ] && [ "$live" != "$state" ] && detail="$detail; live=$live"
   elif [ "$archived" = 1 ]; then

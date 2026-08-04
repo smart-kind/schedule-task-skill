@@ -10,23 +10,27 @@ picks them up at the scheduled time, survives usage-limit windows, and pushes ba
 Git is the only channel: you push *intent*, the worker pushes back *results*.
 
 ```
- Author box (any laptop)         Git remote              Worker box (VPS, cron every 5 min)
+ Author box (any laptop)         Git remote              Worker box(es) (VPS, cron every 5 min)
  ┌──────────────────────┐   ┌────────────────┐   ┌───────────────────────────────────┐
  │ /schedule-task       │   │ tasks/*.json   │   │ dispatch.sh (flock, FL_MAX_CONC.) │
- │  DISCUSS→DRAFT→      │──►│ prompts/*.md   │──►│  └─ tmux task-<id> → run-task.sh  │
- │  REVIEW→COMMIT       │   │ batches/*.json │   │      worktree on automation/<slug>│
- │  envelope + prompt   │   │                │   │      coding-agent.sh → claude|kimi│
- │  + batch manifest    │   │                │   │      limit? park → resume session │
- └──────────────────────┘   │                │   │      done → reports/<id>.md, push │
-        ▲                   │ reports/*.md   │◄──│      batch done → merge → dev     │
-        └── git pull ───────┤ task branches  │   │      conflict → flag, never force │
-                            └────────────────┘   └───────────────────────────────────┘
+ │  DISCUSS→DRAFT→      │──►│ prompts/*.md   │──►│  reads state/.machine role+id     │
+ │  REVIEW→COMMIT       │   │ batches/*.json │   │  only launches .worker == my id  │
+ │  envelope + prompt   │   │                │   │  └─ tmux task-<id> → run-task.sh │
+ │  + batch manifest    │   │                │   │      worktree on automation/<id>  │
+ │  (assigns .worker)   │   │                │   │      coding-agent.sh → claude|kimi│
+ └──────────────────────┘   │                │   │      limit? park → resume session│
+        ▲                   │ reports/*.md   │◄──│      done → reports/<id>.md, push│
+ │  git fetch + status ─────┤ task branches  │   │      (never merges)              │
+ │  merge-batch.sh: land ──►│                │   └───────────────────────────────────┘
+ │  done branches → dev     │                │
+ └──────────────────────────┘                └─── workers only execute; author merges
 ```
 
 Key properties: no AI in the control loop (the orchestrator is deterministic shell); add-only git
 design (no merge conflicts on the bus); gates as prose (polyglot — any language's repo); resume
 via CLI session ids (no work lost or redone across limit windows); per-task worktrees + branches;
-dependency-ordered batches with automatic merge at completion.
+machine identity (`state/.machine`) so an author box and several workers never race; workers only
+execute, the author merges finished batches (dependency-ordered, PR optional).
 
 ## Install
 
@@ -54,24 +58,29 @@ ln -s "$PWD" ~/.agents/skills/schedule-task
 
 ## Quickstart
 
-1. **Install the runtime into a target repo** (once per repo). Open the repo in your agent and
-   ask to "initialize automation", or run the skill's `init` flow. It copies the bundled
-   `automation/` bootstrap into the repo, merges the gitignore snippet, checks dependencies
-   (`jq`, `tmux`, `git`, plus `claude` or `kimi`), and prints the worker's cron line:
+1. **Install the runtime into a target repo** (once per repo, once per machine). Open the repo
+   in your agent and ask to "initialize automation", or run the skill's `init` flow. It asks what
+   this machine is (role `author` or `worker`) and its machine id, writes
+   `automation/state/.machine` (gitignored), copies the bundled `automation/` bootstrap into the
+   repo, merges the gitignore snippet, checks dependencies (`jq`, `tmux`, `git`, plus `claude` or
+   `kimi`), and — only for a `worker` — prints the worker's cron line:
    ```
    */5 * * * * flock -n /tmp/schedule-task-dispatch bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
    ```
    Add that line to the worker's crontab. `automation/state/` stays worker-local (gitignored).
 2. **Schedule your first task.** In the repo, tell your agent: "schedule a task: <what you want
    done>, run it tonight at 02:00 UTC". The skill interviews you (mission, gates in plain
-   language, guardrails, schedule), drafts `automation/tasks/<id>.json` +
+   language, worker assignment, guardrails, schedule), drafts `automation/tasks/<id>.json` +
    `automation/prompts/<id>.md`, shows them for review, and commits to the inbox branch (`dev`).
-3. **Watch it.** From the worker (or anywhere after `git pull`): `bash automation/status.sh`.
-   Live on the worker: `tmux attach -t task-<id>`. Results arrive as commits on
-   `automation/<slug>` plus `automation/reports/<id>.md`.
+3. **Watch it.** From the worker: `bash automation/status.sh` (live state). From the author box:
+   `git fetch && bash automation/status.sh` (infers state from each task branch's committed
+   report). Live on the worker: `tmux attach -t task-<id>`. Results arrive as commits on
+   `automation/<id>` plus `automation/reports/<id>.md`.
 4. **Batches**: describe one requirement that needs several tasks and the skill drafts a
-   dependency-ordered batch (`depends_on`, shared `batch` id, `batches/<batch>.json` manifest).
-   When all members finish, the dispatcher merges their branches into `dev` automatically.
+   dependency-ordered batch (`depends_on`, shared `batch` id, `batches/<batch>.json` manifest),
+   assigning each task to a worker if you have more than one. When all members finish, the
+   **author** lands them: `bash automation/merge-batch.sh <batch-id>` (PR optional) — workers
+   never merge.
 
 ## Repo layout
 
@@ -87,20 +96,28 @@ schedule-task/
 │   ├── architecture.md       # two-layer design, topology, invariants, agent router
 │   └── operations.md         # logs, tmux, stuck-task recovery, notify hook
 └── automation/               # runtime bootstrap installed into target repos by `init`
-    ├── dispatch.sh           # trigger-layer watchdog (cron)
+    ├── dispatch.sh           # trigger-layer watchdog (cron; machine-identity + .worker gating)
     ├── run-task.sh           # resilient per-task runner (tmux, worktree, resume)
     ├── coding-agent.sh       # CLI router: claude/kimi profiles, exit-code contract
     ├── status.sh             # read-only status reporter (worker/author modes)
+    ├── merge-batch.sh        # AUTHOR-side batch finalization (workers never merge)
     ├── archive-task.sh       # retire finished tasks into archive/
     ├── hooks/notify.sh       # no-op notification hook (replace to enable)
     ├── tasks/  prompts/  reports/  batches/   # inboxes/outboxes (.gitkeep'd)
-    └── gitignore.snippet     # automation/state/
+    └── gitignore.snippet     # automation/state/ (incl. state/.machine)
 ```
 
 ## Back-compat & rollback
 
-- Old envelopes (no `batch` / `depends_on` / `agent`) run unchanged as single-task batches on the
-  default `claude` profile.
+- Old envelopes (no `batch` / `worker` / `depends_on` / `agent`) run unchanged as single-task
+  batches with no machine assignment (any worker) on the default `claude` profile. Old-style ids
+  (`YYYY-MM-DD-<slug>`) remain valid — the id is just the filename.
+- **Behavior change:** workers no longer auto-merge finished batches. If you relied on that,
+  merge by hand or use `automation/merge-batch.sh <batch-id>` from the author box — same
+  dependency order, same merge target.
+- **Behavior change:** a machine without `automation/state/.machine` defaults to
+  `role=worker, id=<hostname>` and only launches tasks without a `worker` field (or matching its
+  hostname) — exactly the old single-worker behavior.
 - `FL_MAX_CONCURRENCY=1` in the dispatcher's environment restores the old fully-serial dispatch
   behavior; the default is 2.
 - The `state/<id>` first-line-is-the-state-word contract is unchanged, so older status/archive

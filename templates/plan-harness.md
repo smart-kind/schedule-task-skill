@@ -18,11 +18,12 @@
 - <gate 2, e.g. "browser smoke run has no console errors">
 
 ## Guardrails
-- Branch: <branch — the task's own `automation/<slug>` branch, cut from the inbox branch by the
+- Branch: <branch — the task's own `automation/<id>` branch, cut from the inbox branch by the
   runner>. Never touch main. Commit cadence: <...>.
 - Architecture invariants: <...>.
 - Batch (optional): Batch: <batch-id>; this task depends on <ids, or "nothing">; do not merge
-  sibling branches yourself — the dispatcher merges when the whole batch is done.
+  sibling branches yourself — you commit and push only your own branch; the AUTHOR merges all
+  batch branches when the whole batch is done.
 
 ## Progress & checkpoints
 - Emit `[[CHECKPOINT $id <step>]]` after each completed step.

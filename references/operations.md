@@ -6,15 +6,17 @@ running, or stuck.
 ## Status: worker vs author mode
 
 `bash automation/status.sh` is the single read-only entry point. It auto-detects what the current
-machine can know (force with `FL_MODE=worker|author`):
+machine can know (force with `FL_MODE=worker|author`; a `state/.machine` `role` line wins):
 
-- **Worker mode** (the VPS): live truth. Reads `automation/state/<id>` flags and
-  `~/.local/state/automation/<id>/run.log`. Shows live detail for running tasks: attempt count,
-  start time, latest `[[CHECKPOINT …]]` marker.
-- **Author mode** (your laptop after `git pull`): committed truth only. `state/` is gitignored,
-  so state is inferred from `reports/<id>.md` (the H1 encodes `done|failed`) plus presence in
-  `tasks/`. A task mid-run reads as `pending` here — that is correct, not a bug: the author box
-  only knows the last committed truth.
+- **Worker mode** (a machine declared `role=worker`): live truth. Reads `automation/state/<id>`
+  flags and `~/.local/state/automation/<id>/run.log`. Shows live detail for running tasks:
+  attempt count, start time, latest `[[CHECKPOINT …]]` marker.
+- **Author mode** (your laptop): committed truth only. `state/` is gitignored, so state is
+  inferred from each task's `reports/<id>.md` (the H1 encodes `done|failed`). Reports live on the
+  task branches until the author merges them, so **run `git fetch` first** — the reporter reads
+  the report from `origin/<branch>:automation/reports/<id>.md` when there is no local copy. A task
+  mid-run reads as `pending` here — that is correct, not a bug: the author box only knows the last
+  committed truth.
 
 Output is grouped by batch: a batch header (title, notes, `x/y done` progress, next eligible
 task), one row per member task with its trailing notes lines, and ungrouped legacy tasks under
@@ -25,11 +27,12 @@ task), one row per member task with its trailing notes lines, and ungrouped lega
 
 | What | Path |
 |---|---|
+| Machine identity (gitignored, written by init) | `automation/state/.machine` (`role=author\|worker`, `id=<machine-id>`) |
 | Task inbox (committed) | `automation/tasks/<id>.json` (+ `tasks/archive/`) |
 | Prompts (committed) | `automation/prompts/<id>.md` (+ `prompts/archive/`) |
-| Reports (committed, durable) | `automation/reports/<id>.md` |
+| Reports (committed, durable) | `automation/reports/<id>.md` — on the task branch until the author's merge-batch lands them |
 | Batch manifests (committed) | `automation/batches/<batch>.json` |
-| Live state (worker-local, gitignored) | `automation/state/<id>`, `automation/state/<id>.notes`, `automation/state/batch-<batch>` |
+| Live state (worker-local, gitignored) | `automation/state/<id>`, `automation/state/<id>.notes` (legacy `state/batch-<batch>` merge flags no longer written) |
 | Per-task run log (worker) | `~/.local/state/automation/<id>/run.log` |
 | Raw executor streams (worker) | `~/.local/state/automation/<id>/attempt-<n>.jsonl` |
 | Persisted CLI session id (worker) | `~/.local/state/automation/<id>/session_id` |
@@ -67,12 +70,14 @@ that were neither done nor a usage limit. Diagnose from the run log and the last
 delete the state file, next tick relaunches; the persisted session id lets the runner resume with
 context.
 
-**Batch flagged `merge-conflict`.** All member tasks finished, but merging their branches into
-the merge target conflicted, so the dispatcher aborted the merge and flagged it. Nothing retries
-this automatically. Resolve by hand (or hand it to an agent): merge the member branches
-(locally or on the worker) in the manifest's dependency order, push, then set
-`automation/state/batch-<batch>` to `merged` so status stops flagging it. The member task states
-stay `done` — only the landing step failed.
+**Batch merge conflicts during author finalization.** The author runs
+`bash automation/merge-batch.sh <batch-id>` once every task in the batch has a `(done)` report on
+its branch. On a conflict it aborts (`git merge --abort`), leaves `merge_target` clean, and exits
+non-zero — later branches stay unmerged, and nothing retries automatically. Resolve by hand (or
+hand it to an agent): fix the conflicting files on the merge target, commit, re-run
+`merge-batch.sh` — already-merged branches merge cleanly as no-ops, so the run resumes where it
+stopped. The member task states stay `done` — only the landing step failed. Workers never touch
+this: they only execute and push their own branches.
 
 **Task keeps hitting usage limits.** That's normal operation, not a fault: the runner parks until
 the reset time and resumes the same session. Expect `limit-wait` lines in notes and gaps in the
@@ -97,8 +102,9 @@ bash automation/cancel-task.sh --all [reason...]    # every pending + running ta
   (they could never become eligible); the notes line names the root cause.
 - Terminal tasks (`done`/`failed`/`cancelled`) are refused. The worktree
   (`~/.local/state/automation/worktrees/<id>`) is left in place — inspect, then delete by hand.
-- Batch interplay: a batch whose tasks are all terminal still merges the **done** branches
-  (cancelled ones are skipped); an all-cancelled batch is flagged `cancelled`, no merge.
+- Batch interplay: cancelling never triggers a merge (workers never merge). The author's
+  `merge-batch.sh` lands every task branch whose committed report says `(done)` and skips the
+  rest — a cancelled task has no done report, so its branch is never merged.
 - Worker-only (needs live `state/` + tmux). To un-cancel: `rm automation/state/<id>` → the task
   is `pending` again at the next tick.
 

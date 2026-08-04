@@ -15,10 +15,12 @@ the trigger stays trivial.
   EXECUTOR       →  does the actual work  (coding-agent.sh → claude|kimi -p)
 ```
 
-- **`dispatch.sh`** (worker, cron every 5 min under `flock`) — pull the inbox branch, finalize
-  finished batches, find due + eligible tasks, launch each in a detached tmux session
-  (`task-<id>`). Concurrency is capped by `FL_MAX_CONCURRENCY` (default 2; `=1` reproduces the old
-  fully-serial behavior). Returns immediately — the multi-hour part is not the cron tick's job.
+- **`dispatch.sh`** (worker, cron every 5 min under `flock`) — refuses to run unless
+  `automation/state/.machine` says `role=worker`; then pulls the inbox branch, finds due +
+  eligible tasks **whose envelope `.worker` equals this machine's id** (absent `.worker` = any
+  worker may take it), launches each in a detached tmux session (`task-<id>`). Concurrency is
+  capped by `FL_MAX_CONCURRENCY` (default 2; `=1` reproduces the old fully-serial behavior). It
+  never merges anything. Returns immediately — the multi-hour part is not the cron tick's job.
 - **`run-task.sh <id>`** (worker, inside tmux) — executes the task's prompt in an isolated git
   worktree on the task branch; survives usage-limit windows by parking until the reset time and
   resuming the same CLI session with full context; verifies completion (the `[[TASK_DONE <id> …]]`
@@ -31,31 +33,35 @@ the trigger stays trivial.
 **No AI in the control loop.** dispatch.sh and run-task.sh are deterministic shell. Every
 decision that requires judgment happens inside the executor, never in the orchestrator.
 
-## Topology: author box ⟷ git ⟷ worker
+## Topology: author box ⟷ git ⟷ one or more workers
 
 ```
- Author box (laptop)        Git remote           Worker box (VPS)
-       │                       │                      │
-  /schedule-task (NL)          │                      │
-  commit envelope+prompt       │                      │
-  + batch manifest ──push─────►│                      │
-       │                       │◄── git pull ─────────┤  cron tick every 5 min (flock)
-       │                       │     scan tasks/*.json: due? pending? depends_on all done?
-       │                       │     launch ──► tmux task-<id> ──► run-task.sh
-       │                       │                      │   worktree on automation/<slug>
-       │                       │                      │   claude|kimi -p runs the prompt
-       │                       │                      │   ┌─ usage limit ─┐
-       │                       │                      │   │ park → resume │
-       │                       │                      │   └───────────────┘
-       │                       │◄── push results ─────┤   sentinel + new commit → done
-       │                       │     task branch + reports/<id>.md
-       │                       │◄── batch merge ──────┤   all tasks done → merge branches
-       │  git pull ◄───────────┤                      │   into dev (or flag merge-conflict)
-  see commits + report         │                      │
+ Author box (laptop)            Git remote           Worker boxes (VPS, worker-a, …)
+       │                            │                      │
+  /schedule-task (NL)               │                      │
+  commit envelope+prompt            │                      │
+  + batch manifest ──push──────────►│                      │
+  (each task names its worker)      │◄── git pull ─────────┤  cron tick every 5 min (flock)
+       │                            │     scan tasks/*.json: .worker == my id?
+       │                            │     due? pending? depends_on all done?
+       │                            │     launch ──► tmux task-<id> ──► run-task.sh
+       │                            │                      │   worktree on automation/<id>
+       │                            │                      │   claude|kimi -p runs the prompt
+       │                            │                      │   ┌─ usage limit ─┐
+       │                            │                      │   │ park → resume │
+       │                            │                      │   └───────────────┘
+       │                            │◄── push results ─────┤   sentinel + new commit → done
+       │                            │     task branch + reports/<id>.md (per worker)
+       │  git fetch ◄───────────────┤                      │
+       │  status: read reports      │                      │
+       │  from each origin/<branch> │                      │
+       │  merge-batch.sh: land all  │                      │
+       │  done branches → dev       │                      │
+       │  push (PR optional)        │                      │
 ```
 
-Git is the only channel. The author pushes *intent*; the worker pushes back *results*. No service,
-no API, no shared filesystem.
+Git is the only channel. The author pushes *intent*; each worker pushes back *results* on its own
+branches. No service, no API, no shared filesystem.
 
 ## Core invariants
 
@@ -76,16 +82,24 @@ no API, no shared filesystem.
    commit is the durable state and the prompt's "If interrupted and resumed" section tells the
    executor to continue from the last commit — never redo, never revert.
 5. **Worktree isolation per task.** Each task runs in its own git worktree on its own branch
-   (`automation/<slug>`, cut from the inbox-branch tip). Concurrent tasks never share a working
+   (`automation/<id>`, cut from the inbox-branch tip). Concurrent tasks never share a working
    tree; the main checkout stays untouched for the dispatcher.
 6. **Per-task branches; never `main`/`dev` directly.** The executor's blast radius is bounded by
    branch guardrails ("never touch main"), and results arrive as reviewable branch commits.
-7. **Batch merge at completion.** Tasks sharing a `batch` id are a unit: the dispatcher runs them
-   as dependencies allow, and when *all* are `done` it merges their branches into the manifest's
-   `merge_target` (default `dev`) in dependency order. A conflict aborts the merge
-   (`git merge --abort`), sets `state/batch-<id>` to `merge-conflict`, and writes a note —
-   resolution is a human/agent decision, never an automatic force-through.
-8. **Liveness by PID, not by silence.** A task is dead only when its process is gone. An executor
+7. **Machine identity, no cross-machine racing.** Every machine that runs the runtime declares
+   itself at `init` in gitignored `automation/state/.machine`: `role=author|worker` +
+   `id=<machine-id>`. Only `role=worker` machines dispatch; a task runs only on its named
+   `worker` (absent = any worker may take it). Because state/ never crosses git, this declaration
+   is the only coordination between machines — and it is enough, because each task has exactly
+   one owner. (This replaces the old assumption "only the single VPS installs cron", which broke
+   the moment a second machine — even the author's laptop — also pulled the inbox.)
+8. **The author is the only merger.** Workers never merge. When every task in a batch is done,
+   the author runs `automation/merge-batch.sh <batch-id>`: it fetches origin, lands each task
+   branch whose committed report says `(done)` onto the manifest's `merge_target` (default `dev`)
+   in manifest (dependency) order, and pushes (PR optional). A conflict aborts the merge
+   (`git merge --abort`) and exits non-zero — resolution is a human/agent decision, never an
+   automatic force-through. Idempotent, so a fix + re-run resumes where it stopped.
+9. **Liveness by PID, not by silence.** A task is dead only when its process is gone. An executor
    fanning out sub-agents can legitimately emit nothing for 10+ minutes — never kill on "the pane
    went quiet".
 
