@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# status.sh — read-only status reporter for scheduled automation tasks (v2: batch-aware).
+# status.sh [<repo-path>] [subcommand] — read-only status reporter for scheduled automation tasks.
 # Prints one row per task (active + archived) with its current state, derived from
 # whatever signals the current machine actually has. It NEVER mutates anything.
 #
@@ -31,7 +31,12 @@
 #   FL_MODE       force 'worker' or 'author' (default: auto-detect)
 set -uo pipefail
 
-FL_AUTO_ROOT="${FL_AUTO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Repo root: first positional arg if it's a directory; FL_AUTO_ROOT becomes <repo>/automation.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  FL_AUTO_ROOT="$(cd "$1/automation" && pwd)"; shift
+else
+  FL_AUTO_ROOT="${FL_AUTO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+fi
 FL_LOG_ROOT="${FL_LOG_ROOT:-$HOME/.local/state/automation}"
 REPO_ROOT="$(dirname "$FL_AUTO_ROOT")"
 NOW="$(date -u +%s)"
@@ -73,8 +78,14 @@ reltime() {
 }
 
 # iso_epoch — convert an ISO-8601 UTC timestamp to epoch seconds (echo 0 on failure).
-# GNU date is the production target; gdate (coreutils) is tried as a macOS fallback.
-iso_epoch() { date -u -d "$1" +%s 2>/dev/null || gdate -u -d "$1" +%s 2>/dev/null || echo 0; }
+# GNU date is the production target; gdate (coreutils) is tried as a macOS fallback;
+# python3 is used as a last resort so author boxes on macOS without coreutils still work.
+iso_epoch() {
+  date -u -d "$1" +%s 2>/dev/null \
+    || gdate -u -d "$1" +%s 2>/dev/null \
+    || python3 -c 'import datetime,sys; t=sys.argv[1]; print(int(datetime.datetime.fromisoformat(t.replace("Z","+00:00")).timestamp()))' "$1" 2>/dev/null \
+    || echo 0
+}
 
 # task_row — compute "state<TAB>detail" for one task file, honouring the current MODE.
 # Args: <task-json-path> <archived:0|1> <mode>
