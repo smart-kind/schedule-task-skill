@@ -100,7 +100,7 @@ for tf in "$REPO"/automation/tasks/*.json; do
   tmux new-session -d -s "task-$id" "bash '$RUNNER' '$REPO' '$id'"
   free=$((free - 1)); launched=$((launched + 1))
 done
-[ "$launched" -eq 0 ] && dlog "nothing due"
+if [ "$launched" -eq 0 ]; then dlog "nothing due"; fi
 
 # Workers NEVER merge: batch finalization (landing every done task's branch on the
 # merge target, in dependency order) is the author's job — automation/merge-batch.sh.
