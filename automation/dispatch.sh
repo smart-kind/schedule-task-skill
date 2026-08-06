@@ -51,7 +51,8 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   dlog "main tree has tracked changes; skipping tick"; exit 0
 fi
 
-git checkout dev >/dev/null 2>&1 || { dlog "cannot checkout dev"; exit 0; }
+git fetch origin dev >/dev/null 2>&1 || { dlog "cannot fetch origin/dev"; exit 0; }
+git checkout dev >/dev/null 2>&1 || git checkout -b dev origin/dev >/dev/null 2>&1 || { dlog "cannot checkout dev"; exit 0; }
 git pull --rebase origin dev >/dev/null 2>&1 || dlog "pull failed (offline?)"
 
 # Launch due + eligible tasks until the free slots are filled.
