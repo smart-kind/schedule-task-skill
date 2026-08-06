@@ -78,6 +78,13 @@ first (below) — it creates the data directories and the worker-local state con
      Remind the user: `automation/state/` stays local to the worker (gitignored); it is the
      worker-local truth and never crosses git.
 
+- **`update`** — update the skill installation itself. Run in the skill source directory
+  (e.g. `~/agent-skills/schedule-task`): `bash install.sh --update`. This pulls the latest
+  source from GitHub and ensures the user-level symlinks
+  (`~/.agents/skills/schedule-task`, `~/.claude/skills/schedule-task`,
+  `~/.kimi-code/skills/schedule-task`) still point to it. Existing correct symlinks are left
+  alone; broken or stale symlinks are replaced. Use `--dry-run` to preview.
+
 - **`archive`** — retire finished tasks: run `bash <skill>/automation/archive-task.sh <repo> <id>`
   per task (or once per task of a finished batch). It moves the envelope + prompt pair into
   `automation/{tasks,prompts}/archive/` — kept in git as a faithful record — and **refuses any

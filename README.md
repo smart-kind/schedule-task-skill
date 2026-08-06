@@ -42,7 +42,8 @@ cd ~/agent-skills/schedule-task
 
 `install.sh` symlinks the repo into every agent-skills directory whose parent exists:
 `~/.agents/skills/schedule-task`, `~/.claude/skills/schedule-task`, `~/.kimi-code/skills/schedule-task`.
-Existing entries are left alone (reported as SKIP). Manual equivalent:
+Existing entries are left alone (reported as SKIP). To update later, run `./install.sh --update`.
+Manual equivalent:
 
 ```bash
 ln -s "$PWD" ~/.agents/skills/schedule-task
