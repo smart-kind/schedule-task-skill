@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-task.sh <task-id>
+# run-task.sh [<repo-path>] <task-id>
 # Resilient headless runner for one automation task. Executes the task's plan-harness
 # prompt via a coding CLI — routed through automation/coding-agent.sh so claude and kimi
 # share this exact loop — inside an ISOLATED git worktree on the task branch, and
@@ -15,8 +15,13 @@ set -uo pipefail
 export HOME="${HOME:-/home/david}"
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
-ID="${1:?usage: run-task.sh <task-id>}"
-MAIN_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: first positional arg if it's a directory, otherwise derive from script location.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  MAIN_REPO="$(cd "$1" && pwd)"; shift
+else
+  MAIN_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+ID="${1:?usage: run-task.sh [<repo-path>] <task-id>}"
 TASK="$MAIN_REPO/automation/tasks/$ID.json"
 STATE_DIR="$MAIN_REPO/automation/state"
 LOGD="$HOME/.local/state/automation/$ID"
@@ -46,7 +51,7 @@ LIMIT_FALLBACK="${LIMIT_FALLBACK:-1800}" # wait when the router reports no reset
 MAX_AMBIGUOUS="${MAX_AMBIGUOUS:-12}"     # abort after this many non-limit, non-done exits
 AMBIGUOUS_SLEEP="${AMBIGUOUS_SLEEP:-20}" # backoff between ambiguous retries (never tight-loop)
 AMBIGUOUS_FRESH_AT="${AMBIGUOUS_FRESH_AT:-6}" # after N ambiguous, drop the session for a clean fresh run
-ROUTER="${CODING_AGENT_BIN:-$MAIN_REPO/automation/coding-agent.sh}" # CLI router (test seam; old CLAUDE_BIN role)
+ROUTER="${CODING_AGENT_BIN:-$(dirname "${BASH_SOURCE[0]}")/coding-agent.sh}" # CLI router (central skill by default)
 
 echo running > "$STATE_DIR/$ID"
 log "start id=$ID branch=$BRANCH model=$MODEL agent=$AGENT"

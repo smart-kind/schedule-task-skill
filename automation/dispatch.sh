@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# dispatch.sh — the trigger-layer watchdog. Runs from cron every 5 min (under flock)
-# on a machine that declared itself a worker in automation/state/.machine
+# dispatch.sh [<repo-path>] — the trigger-layer watchdog. Runs from cron every 5 min (under flock)
+# on a machine that declared itself a worker in automation/state/.machine.
+# If <repo-path> is omitted, the repo is derived from this script's location.
 # (role=worker + id=<machine-id>; init writes it). Deterministic and cheap: pull the
 # inbox, launch due + eligible tasks in detached tmux sessions — bounded by
 # FL_MAX_CONCURRENCY instead of v1's global "any task running → idle" serialization
@@ -15,7 +16,13 @@ set -uo pipefail
 export HOME="${HOME:-/home/david}"
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: first positional arg if it's a directory, otherwise derive from script location.
+# This lets the skill live user-level while operating on any project.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  REPO="$(cd "$1" && pwd)"; shift
+else
+  REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 STATE_DIR="$REPO/automation/state"
 mkdir -p "$STATE_DIR"
 cd "$REPO" || exit 1
@@ -88,7 +95,9 @@ for tf in "$REPO"/automation/tasks/*.json; do
   [ -n "$blocked" ] && { dlog "$id blocked by $blocked (not done)"; continue; }
 
   dlog "launching $id"
-  tmux new-session -d -s "task-$id" "bash '$REPO/automation/run-task.sh' '$id'"
+  # Use the same script directory as dispatch.sh (works for both central and copied runtimes).
+  RUNNER="$(dirname "${BASH_SOURCE[0]}")/run-task.sh"
+  tmux new-session -d -s "task-$id" "bash '$RUNNER' '$REPO' '$id'"
   free=$((free - 1)); launched=$((launched + 1))
 done
 [ "$launched" -eq 0 ] && dlog "nothing due"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# merge-batch.sh <batch-id> — AUTHOR-side batch finalization.
+# merge-batch.sh [<repo-path>] <batch-id> — AUTHOR-side batch finalization.
 # Workers NEVER merge (machine-identity contract in dispatch.sh); the author lands every
 # finished task's branch onto the manifest's merge_target (default dev), in manifest
 # (dependency) order, then pushes. Run on the author box after `git fetch` — works in any
@@ -15,8 +15,13 @@
 # stopped (already-merged branches merge cleanly as no-ops).
 set -uo pipefail
 
-BID="${1:?usage: merge-batch.sh <batch-id>}"
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: first positional arg if it's a directory, otherwise derive from script location.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  REPO="$(cd "$1" && pwd)"; shift
+else
+  REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+BID="${1:?usage: merge-batch.sh [<repo-path>] <batch-id>}"
 MANIFEST="$REPO/automation/batches/$BID.json"
 [ -f "$MANIFEST" ] || { echo "merge-batch: no manifest automation/batches/$BID.json" >&2; exit 1; }
 

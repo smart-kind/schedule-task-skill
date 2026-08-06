@@ -23,16 +23,18 @@ agent.
 
 ## Prerequisite
 
-The current repo must contain the automation runtime: `automation/dispatch.sh`, `run-task.sh`,
-`status.sh`, `archive-task.sh`, `merge-batch.sh`, `coding-agent.sh`, `hooks/notify.sh`. If
-`automation/dispatch.sh` is missing in the repo you're working in, run the **`init`** sub-command
-first (below) — it copies the bundled bootstrap from the `automation/` directory next to this
-SKILL.md.
+The current repo must contain the automation **data directories**:
+`automation/{tasks,prompts,reports,batches,state}/` and optionally `automation/hooks/notify.sh`.
+The executable scripts live in the user-level skill installation (e.g.
+`~/.agents/skills/schedule-task/automation/`) and accept the repo path as the first argument.
+If `automation/tasks/` is missing in the repo you're working in, run the **`init`** sub-command
+first (below) — it creates the data directories and the worker-local state configuration.
 
 ## Sub-commands (route on the first argument)
 
 - **`status`** — read-only report of every scheduled task. Run `git fetch` first, then
-  `bash automation/status.sh` and relay its output verbatim (the batch-grouped table + the counts
+  `bash <skill>/automation/status.sh <repo>` (or `bash automation/status.sh` when the scripts are
+  copied into the project) and relay its output verbatim (the batch-grouped table + the counts
   line). The script auto-detects the machine: on a *worker* it reads live `state/` flags + run
   logs; on the *author* box it infers state from each task branch's committed
   `automation/reports/<id>.md` (state/ is gitignored, so after a fetch the reporter reads the
@@ -51,34 +53,40 @@ SKILL.md.
      Every machine that runs the runtime gets one: the author box (role `author`), and each
      worker box (role `worker`). dispatch.sh refuses to launch anything unless `role=worker`, so
      an author box can never compete with a worker.
-  2. Copy every file from the `automation/` directory bundled next to this SKILL.md into
-     `<repo>/automation/`. Idempotent: **skip files that already exist**, and report what was
-     copied vs skipped. (Keep existing `tasks/`, `prompts/`, `reports/`, `batches/` content —
-     only add what's missing.)
-  3. Merge `automation/gitignore.snippet` into the repo's `.gitignore` — append only the lines
+  2. Create only the **data directories** in `<repo>/automation/`: `tasks/`, `prompts/`,
+     `reports/`, `batches/`, and `state/`. Also add a no-op `hooks/notify.sh` so users have a
+     per-project customization point. The executable scripts (`dispatch.sh`, `run-task.sh`,
+     `coding-agent.sh`, `archive-task.sh`, `cancel-task.sh`, `merge-batch.sh`, `status.sh`)
+     are **not copied** — they live in the user-level skill installation and are invoked with
+     the repo path as the first argument.
+  3. **Re-init / migration**: if `<repo>/automation/` already contains the old executable
+     scripts, ask the user whether to remove them. Keep `tasks/`, `prompts/`, `reports/`,
+     `batches/`, `state/`, and `hooks/notify.sh`. Do not remove anything without confirmation.
+  4. Merge `automation/gitignore.snippet` into the repo's `.gitignore` — append only the lines
      that are missing (currently just `automation/state/`).
-  4. Check dependencies on PATH: `jq`, `tmux`, `git`, and at least one of `claude` / `kimi`.
+  5. Check dependencies on PATH: `jq`, `tmux`, `git`, and at least one of `claude` / `kimi`.
      Report what's missing; don't fail hard — the deps matter on the *worker*, not necessarily
      on the author's machine.
-  5. Only for a `worker` role, print the exact cron line for that worker box, with `<repo>`
-     replaced by the absolute path of the repo **on the worker** and `<lock>` by the repo's
-     basename (e.g. `red-flow`). The flock name is scoped per project so several projects'
-     dispatchers on one machine never serialize each other (`/tmp` is per-machine — different
-     machines may safely reuse the same name):
+  6. Only for a `worker` role, print the exact cron line for that worker box. Replace `<repo>`
+     with the absolute path of the repo **on the worker**, `<skill>` with the skill installation
+     path (e.g. `~/.agents/skills/schedule-task`), and `<lock>` with the repo's basename
+     (e.g. `red-flow`). The flock name is scoped per project so several projects' dispatchers
+     on one machine never serialize each other:
      ```
-     */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
+     */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash <skill>/automation/dispatch.sh <repo> >> <repo>/automation/dispatch.log 2>&1
      ```
      Remind the user: `automation/state/` stays local to the worker (gitignored); it is the
      worker-local truth and never crosses git.
 
-- **`archive`** — retire finished tasks: run `bash automation/archive-task.sh <id>` per task (or
-  once per task of a finished batch). It moves the envelope + prompt pair into
+- **`archive`** — retire finished tasks: run `bash <skill>/automation/archive-task.sh <repo> <id>`
+  per task (or once per task of a finished batch). It moves the envelope + prompt pair into
   `automation/{tasks,prompts}/archive/` — kept in git as a faithful record — and **refuses any
   task whose state is not `done` or `cancelled`**. Reports in `automation/reports/` are never
   moved.
 
-- **`cancel`** — stop one task or everything in flight: `bash automation/cancel-task.sh <id>
-  [reason...]` or `bash automation/cancel-task.sh --all [reason...]`. A **pending** task simply
+- **`cancel`** — stop one task or everything in flight:
+  `bash <skill>/automation/cancel-task.sh <repo> <id> [reason...]` or
+  `bash <skill>/automation/cancel-task.sh <repo> --all [reason...]`. A **pending** task simply
   never dispatches again; a **running** one gets its tmux session killed (runner, limit-park
   `sleep`, and the coding-agent CLI child all die with the pane — so cancel works even mid
   limit-wait). Cancelling **cascades**: active tasks whose `depends_on` chain includes the
@@ -93,7 +101,8 @@ SKILL.md.
   ssh to the worker or ask the user to run it there.
 
 - **`merge-batch <batch-id>`** — AUTHOR-side batch finalization. Run on the author box when every
-  task in the batch has finished: `bash automation/merge-batch.sh <batch-id>`. It fetches
+  task in the batch has finished: `bash <skill>/automation/merge-batch.sh <repo> <batch-id>`.
+  It fetches
   `origin`, checks each task's committed report on its branch (`(done)` = merge it, anything else
   = skip and report), lands the done branches onto the manifest's `merge_target` (default `dev`)
   in manifest (dependency) order, and pushes. On a conflict it aborts and exits non-zero —
@@ -197,7 +206,8 @@ Then remind the user:
 - Progress shows as `[[CHECKPOINT ...]]` markers; results land on each task branch +
   `automation/reports/<id>.md` — visible via `git fetch` + status.
 - When **all** tasks of a batch are done, the **author** lands the batch:
-  `bash automation/merge-batch.sh <batch-id>` (PR optional) — workers never merge.
+  `bash <skill>/automation/merge-batch.sh <repo> <batch-id>` (or `bash automation/merge-batch.sh <batch-id>`
+  when scripts are copied into the project). PR optional — workers never merge.
 
 ## Hard rules
 

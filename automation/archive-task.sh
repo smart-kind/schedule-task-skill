@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# archive-task.sh <task-id>
+# archive-task.sh [<repo-path>] <task-id>
 # Retire a COMPLETED automation task by moving its prompt + envelope into the sibling
 # archive/ dirs instead of deleting them (the old manual `rm` lost the authored spec).
 # The dispatcher scans automation/tasks/*.json non-recursively, so an archived task in
@@ -7,8 +7,13 @@
 # record. Move-only; never touches automation/reports/ (the durable run record).
 set -uo pipefail
 
-ID="${1:?usage: archive-task.sh <task-id>}"
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: first positional arg if it's a directory, otherwise derive from script location.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  REPO="$(cd "$1" && pwd)"; shift
+else
+  REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+ID="${1:?usage: archive-task.sh [<repo-path>] <task-id>}"
 TASK="$REPO/automation/tasks/$ID.json"
 [ -f "$TASK" ] || { echo "archive-task: no active task automation/tasks/$ID.json" >&2; exit 1; }
 

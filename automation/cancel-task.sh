@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cancel-task.sh <task-id>|--all [reason...]
+# cancel-task.sh [<repo-path>] <task-id>|--all [reason...]
 # Cancel a scheduled task — pending ones simply never dispatch again; RUNNING ones get
 # their tmux session killed (run-task.sh, its limit-park `sleep`, and the coding-agent
 # CLI child all die with the pane), so cancel works even mid limit-wait.
@@ -19,7 +19,12 @@ set -uo pipefail
 export HOME="${HOME:-/home/david}"
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: first positional arg if it's a directory, otherwise derive from script location.
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+  REPO="$(cd "$1" && pwd)"; shift
+else
+  REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 STATE_DIR="$REPO/automation/state"
 mkdir -p "$STATE_DIR"
 shopt -s nullglob
