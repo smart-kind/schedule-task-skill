@@ -104,9 +104,9 @@ task_row() {
     state=running
     detail="attempt=$att; started=${started:-?}; ${ckpt:-no-checkpoint}"
   elif rc="$(report_content "$tf")" && [ -n "$rc" ]; then
-    state="$(printf '%s' "$rc" | grep -m1 -oE '\((done|failed)\)' | tr -d '()')"; state="${state:-done}"
-    fin="$(printf '%s' "$rc" | grep -m1 'Finished:' | sed 's/.*Finished: *//')"
-    att="$(printf '%s' "$rc" | grep -m1 'Attempts:' | sed 's/.*Attempts: *//')"
+    state="$(grep -m1 -oE '\((done|failed)\)' <<< "$rc" | tr -d '()')"; state="${state:-done}"
+    fin="$(grep -m1 'Finished:' <<< "$rc" | sed 's/.*Finished: *//')"
+    att="$(grep -m1 'Attempts:' <<< "$rc" | sed 's/.*Attempts: *//')"
     detail="attempts=${att:-?}; finished=${fin:-?}"
     [ -n "$live" ] && [ "$live" != "$state" ] && detail="$detail; live=$live"
   elif [ "$archived" = 1 ]; then
@@ -122,10 +122,10 @@ task_row() {
 
 # state_of — look up a task id's computed state in the STATES memo built by render
 # (bash dynamic scoping: sees render's locals). Empty when the id has no local envelope.
-state_of() { printf '%s' "$STATES" | grep -m1 "^$1|" | cut -d'|' -f2; }
+state_of() { grep -m1 "^$1|" <<< "$STATES" | cut -d'|' -f2; }
 
 # deps_of — comma-joined depends_on list for a task id from the DEPS memo (empty = none).
-deps_of() { printf '%s' "$DEPS" | grep -m1 "^$1|" | cut -d'|' -f2; }
+deps_of() { grep -m1 "^$1|" <<< "$DEPS" | cut -d'|' -f2; }
 
 # render — print the header, task rows grouped by batch manifest, and a counts summary.
 render() {
@@ -186,7 +186,7 @@ render() {
       [ -n "$bnote" ] && echo "  batch-note: $bnote"
     fi
     for tid in $(jq -r '.tasks[]' "$mf"); do
-      line="$(printf '%s' "$ROWS" | grep -m1 "^$tid|" | cut -d'|' -f4-)"
+      line="$(grep -m1 "^$tid|" <<< "$ROWS" | cut -d'|' -f4-)"
       [ -z "$line" ] && continue  # manifest lists an id whose envelope isn't on this box
       echo "  $line"
       [ "$mode" = worker ] && [ -f "$FL_AUTO_ROOT/state/$tid.notes" ] &&
@@ -264,8 +264,8 @@ self_test() {
   printf '{"id":"canc1","title":"Cancelled batch","notes":"","tasks":["g-canc"],"merge_target":"dev"}\n' > "$tmp/batches/canc1.json"
 
   local pass=0 fail=0
-  check() { if echo "$2" | grep -qE "$3"; then echo "  ok: $1"; pass=$((pass+1)); else echo "  FAIL: $1"; echo "$2" | sed 's/^/    /'; fail=$((fail+1)); fi; }
-  check_absent() { if echo "$2" | grep -qE "$3"; then echo "  FAIL: $1 (unexpected match)"; echo "$2" | sed 's/^/    /'; fail=$((fail+1)); else echo "  ok: $1"; pass=$((pass+1)); fi; }
+  check() { if grep -qE "$3" <<< "$2"; then echo "  ok: $1"; pass=$((pass+1)); else echo "  FAIL: $1"; echo "$2" | sed 's/^/    /'; fail=$((fail+1)); fi; }
+  check_absent() { if grep -qE "$3" <<< "$2"; then echo "  FAIL: $1 (unexpected match)"; echo "$2" | sed 's/^/    /'; fail=$((fail+1)); else echo "  ok: $1"; pass=$((pass+1)); fi; }
 
   local out
   out="$(FL_AUTO_ROOT="$tmp" FL_LOG_ROOT="$tmp/logs" FL_MODE=worker render)"

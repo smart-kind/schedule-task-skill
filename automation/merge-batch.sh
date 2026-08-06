@@ -54,7 +54,7 @@ for tid in $TIDS; do
     mlog "$tid: no report on origin/$br (not finished / no push); skipped"
     skipped=$((skipped + 1)); continue
   fi
-  if ! git show "origin/$br:automation/reports/$tid.md" 2>/dev/null | grep -q '(done)'; then
+  if ! grep -q '(done)' <<< "$(git show "origin/$br:automation/reports/$tid.md" 2>/dev/null)"; then
     mlog "$tid: report on origin/$br is not (done); skipped"
     skipped=$((skipped + 1)); continue
   fi

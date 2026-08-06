@@ -68,8 +68,8 @@ if [ -e "$WT/.git" ]; then
   # still works. kimi session ids aren't greppable from the log the same way, so kimi simply
   # starts fresh.
   if [ -z "$session_id" ] && [ "$AGENT" = claude ]; then
-    last="$(ls -1t "$LOGD"/attempt-*.jsonl 2>/dev/null | head -1)"
-    [ -n "$last" ] && session_id="$(jq -r 'select(.type=="system") | .session_id // empty' "$last" 2>/dev/null | head -1)"
+    last="$(ls -1t "$LOGD"/attempt-*.jsonl 2>/dev/null | sed -n '1p')"
+    [ -n "$last" ] && session_id="$(jq -r 'select(.type=="system") | .session_id // empty' "$last" 2>/dev/null | sed -n '1p')"
     [ -n "$session_id" ] && log "recovered session $session_id from $last"
   fi
   [ -n "$session_id" ] && log "will resume $session_id"
@@ -110,7 +110,7 @@ while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
   # The router reports the session id on stderr (mixed with the CLI's own stderr) — grep ONLY
   # the ^session_id= line. Refresh SESS_FILE on every attempt, not just fresh ones: kimi
   # resumes may mint a new session id, and a crash/reboot mid-task must resume the LATEST one.
-  sid="$(grep '^session_id=' "$E" 2>/dev/null | head -1 | cut -d= -f2)"
+  sid="$(grep -m1 '^session_id=' "$E" 2>/dev/null | cut -d= -f2)"
   if [ -n "$sid" ]; then session_id="$sid"; printf '%s' "$session_id" > "$SESS_FILE"; fi
   cat "$E" >> "$LOGD/run.log" 2>/dev/null || true
   log "session_id=$session_id rc=$rc"
@@ -123,7 +123,7 @@ while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
   # (+ an optional reset_epoch on stderr); we park until that instant (+ margin) — or the
   # fallback wait when no epoch was parsed — then resume with full context.
   if [ "$rc" -eq 75 ]; then
-    ep="$(grep '^reset_epoch=' "$E" 2>/dev/null | head -1 | cut -d= -f2)"
+    ep="$(grep -m1 '^reset_epoch=' "$E" 2>/dev/null | cut -d= -f2)"
     case "$ep" in ''|*[!0-9]*) ep="";; esac
     now="$(date -u +%s)"
     if [ -n "$ep" ] && [ "$ep" -gt "$now" ] && [ "$ep" -lt "$((now + 700000))" ]; then

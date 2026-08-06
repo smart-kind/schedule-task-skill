@@ -63,8 +63,8 @@ rc=${PIPESTATUS[0]}   # the CLI's code, not tee's
 sid=""
 case "$AGENT" in
   # claude: the opening system event. kimi: the session.resume_hint meta event.
-  claude) sid="$(jq -r 'select(.type=="system") | .session_id // empty' "$OUT" 2>/dev/null | head -1)";;
-  kimi)   sid="$(jq -r 'select(.type=="meta" and .session_id) | .session_id // empty' "$OUT" 2>/dev/null | head -1)";;
+  claude) sid="$(jq -r 'select(.type=="system") | .session_id // empty' "$OUT" 2>/dev/null | sed -n '1p')";;
+  kimi)   sid="$(jq -r 'select(.type=="meta" and .session_id) | .session_id // empty' "$OUT" 2>/dev/null | sed -n '1p')";;
 esac
 [ -n "$sid" ] && printf 'session_id=%s\n' "$sid" >&2
 
@@ -83,11 +83,11 @@ if [ "$limit" -eq 1 ]; then
   if [ "$AGENT" = claude ]; then
     # Reset time may be a 10-digit epoch OR a clock phrase like "resets 11am (UTC)".
     now="$(date -u +%s)"
-    ep="$(grep -oE '[0-9]{10}' "$OUT" 2>/dev/null | head -1)"
+    ep="$(grep -m1 -oE '[0-9]{10}' "$OUT" 2>/dev/null)"
     if [ -n "$ep" ] && [ "$ep" -gt "$now" ] && [ "$ep" -lt "$((now + 700000))" ]; then
       printf 'reset_epoch=%s\n' "$ep" >&2
     else
-      rt="$(grep -oiE 'resets? [0-9]{1,2} ?(am|pm)' "$OUT" 2>/dev/null | head -1 | grep -oiE '[0-9]{1,2} ?(am|pm)')"
+      rt="$(grep -m1 -oiE 'resets? [0-9]{1,2} ?(am|pm)' "$OUT" 2>/dev/null | grep -oiE '[0-9]{1,2} ?(am|pm)')"
       cand=0
       if [ -n "$rt" ]; then
         # Resolve to today's (or tomorrow's, if already past) UTC instant of that hour.
