@@ -61,22 +61,26 @@ ln -s "$PWD" ~/.agents/skills/schedule-task
 1. **Install the runtime into a target repo** (once per repo, once per machine). Open the repo
    in your agent and ask to "initialize automation", or run the skill's `init` flow. It asks what
    this machine is (role `author` or `worker`) and its machine id, writes
-   `automation/state/.machine` (gitignored), copies the bundled `automation/` bootstrap into the
-   repo, merges the gitignore snippet, checks dependencies (`jq`, `tmux`, `git`, plus `claude` or
-   `kimi`), and — only for a `worker` — prints the worker's cron line (`<lock>` = repo
-   basename, so each project's dispatcher on a machine gets its own flock):
+   `automation/state/.machine` (gitignored), creates the data directories
+   `automation/{tasks,prompts,reports,batches,state}/` and a no-op `automation/hooks/notify.sh`,
+   merges the gitignore snippet, checks dependencies (`jq`, `tmux`, `git`, plus `claude` or
+   `kimi`), and — only for a `worker` — prints the worker's cron line. The executable scripts
+   stay in the user-level skill installation; the cron line passes the repo path as the first
+   argument (`<lock>` = repo basename, so each project's dispatcher on a machine gets its own
+   flock):
    ```
-   */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
+   */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash ~/.agents/skills/schedule-task/automation/dispatch.sh <repo> >> <repo>/automation/dispatch.log 2>&1
    ```
    Add that line to the worker's crontab. `automation/state/` stays worker-local (gitignored).
 2. **Schedule your first task.** In the repo, tell your agent: "schedule a task: <what you want
    done>, run it tonight at 02:00 UTC". The skill interviews you (mission, gates in plain
    language, worker assignment, guardrails, schedule), drafts `automation/tasks/<id>.json` +
    `automation/prompts/<id>.md`, shows them for review, and commits to the inbox branch (`dev`).
-3. **Watch it.** From the worker: `bash automation/status.sh` (live state). From the author box:
-   `git fetch && bash automation/status.sh` (infers state from each task branch's committed
-   report). Live on the worker: `tmux attach -t task-<id>`. Results arrive as commits on
-   `automation/<id>` plus `automation/reports/<id>.md`.
+3. **Watch it.** From the worker: `bash ~/.agents/skills/schedule-task/automation/status.sh <repo>`
+   (live state). From the author box: `git fetch && bash ~/.agents/skills/schedule-task/automation/status.sh <repo>`
+   (infers state from each task branch's committed report). Live on the worker:
+   `tmux attach -t task-<id>`. Results arrive as commits on `automation/<id>` plus
+   `automation/reports/<id>.md`.
 4. **Batches**: describe one requirement that needs several tasks and the skill drafts a
    dependency-ordered batch (`depends_on`, shared `batch` id, `batches/<batch>.json` manifest),
    assigning each task to a worker if you have more than one. When all members finish, the
@@ -96,15 +100,15 @@ schedule-task/
 │   ├── envelope-schema.md    # tasks/<id>.json + batches/<batch>.json + state contract
 │   ├── architecture.md       # two-layer design, topology, invariants, agent router
 │   └── operations.md         # logs, tmux, stuck-task recovery, notify hook
-└── automation/               # runtime bootstrap installed into target repos by `init`
+└── automation/               # runtime scripts (user-level); data dirs live in each target repo
     ├── dispatch.sh           # trigger-layer watchdog (cron; machine-identity + .worker gating)
     ├── run-task.sh           # resilient per-task runner (tmux, worktree, resume)
     ├── coding-agent.sh       # CLI router: claude/kimi profiles, exit-code contract
     ├── status.sh             # read-only status reporter (worker/author modes)
     ├── merge-batch.sh        # AUTHOR-side batch finalization (workers never merge)
     ├── archive-task.sh       # retire finished tasks into archive/
-    ├── hooks/notify.sh       # no-op notification hook (replace to enable)
-    ├── tasks/  prompts/  reports/  batches/   # inboxes/outboxes (.gitkeep'd)
+    ├── hooks/notify.sh       # default no-op notification hook (copied per repo as customization point)
+    ├── tasks/  prompts/  reports/  batches/   # inboxes/outboxes (.gitkeep'd) — copied into target repos
     └── gitignore.snippet     # automation/state/ (incl. state/.machine)
 ```
 
