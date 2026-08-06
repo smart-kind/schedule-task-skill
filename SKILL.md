@@ -61,9 +61,12 @@ SKILL.md.
      Report what's missing; don't fail hard — the deps matter on the *worker*, not necessarily
      on the author's machine.
   5. Only for a `worker` role, print the exact cron line for that worker box, with `<repo>`
-     replaced by the absolute path of the repo **on the worker**:
+     replaced by the absolute path of the repo **on the worker** and `<lock>` by the repo's
+     basename (e.g. `red-flow`). The flock name is scoped per project so several projects'
+     dispatchers on one machine never serialize each other (`/tmp` is per-machine — different
+     machines may safely reuse the same name):
      ```
-     */5 * * * * flock -n /tmp/schedule-task-dispatch bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
+     */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
      ```
      Remind the user: `automation/state/` stays local to the worker (gitignored); it is the
      worker-local truth and never crosses git.

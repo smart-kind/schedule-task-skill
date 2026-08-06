@@ -63,9 +63,10 @@ ln -s "$PWD" ~/.agents/skills/schedule-task
    this machine is (role `author` or `worker`) and its machine id, writes
    `automation/state/.machine` (gitignored), copies the bundled `automation/` bootstrap into the
    repo, merges the gitignore snippet, checks dependencies (`jq`, `tmux`, `git`, plus `claude` or
-   `kimi`), and — only for a `worker` — prints the worker's cron line:
+   `kimi`), and — only for a `worker` — prints the worker's cron line (`<lock>` = repo
+   basename, so each project's dispatcher on a machine gets its own flock):
    ```
-   */5 * * * * flock -n /tmp/schedule-task-dispatch bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
+   */5 * * * * flock -n /tmp/<lock>-dispatch.lock bash <repo>/automation/dispatch.sh >> <repo>/automation/dispatch.log 2>&1
    ```
    Add that line to the worker's crontab. `automation/state/` stays worker-local (gitignored).
 2. **Schedule your first task.** In the repo, tell your agent: "schedule a task: <what you want
