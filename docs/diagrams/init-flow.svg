@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="990" viewBox="0 0 860 990" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="860" height="900" fill="#ffffff"/>
+
+  <!-- start -->
+  <rect x="330" y="20" width="200" height="40" rx="20" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="430" y="45" font-size="14" fill="#0969da" text-anchor="middle" font-weight="bold">开始初始化（init）</text>
+
+  <line x1="430" y1="60" x2="430" y2="85" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 1 role -->
+  <rect x="280" y="90" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="113" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">确认这台机器的角色</text>
+  <text x="430" y="133" font-size="11.5" fill="#57606a" text-anchor="middle">作者（发起/验收）还是 执行者（干活）</text>
+
+  <line x1="430" y1="146" x2="430" y2="171" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 2 machine id -->
+  <rect x="280" y="176" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="199" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">确认机器名（默认主机名）</text>
+  <text x="430" y="219" font-size="11.5" fill="#57606a" text-anchor="middle">任务指派时用它来认人，选稳定的名字</text>
+
+  <line x1="430" y1="232" x2="430" y2="257" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 3 data dirs -->
+  <rect x="280" y="262" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="285" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">创建项目数据目录</text>
+  <text x="430" y="305" font-size="11.5" fill="#57606a" text-anchor="middle">任务单 / 说明 / 报告 / 批次 / 状态 / 通知钩子</text>
+
+  <line x1="430" y1="318" x2="430" y2="343" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 4 machine file -->
+  <rect x="280" y="348" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="371" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">写入机器身份（.machine）</text>
+  <text x="430" y="391" font-size="11.5" fill="#57606a" text-anchor="middle">仅保存在本机，永不提交进代码库</text>
+
+  <line x1="430" y1="404" x2="430" y2="429" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 5 gitignore -->
+  <rect x="280" y="434" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="457" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">更新 .gitignore</text>
+  <text x="430" y="477" font-size="11.5" fill="#57606a" text-anchor="middle">让「状态目录」不进代码库，只留本机</text>
+
+  <line x1="430" y1="490" x2="430" y2="515" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 6 deps -->
+  <rect x="280" y="520" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="430" y="543" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">检查环境依赖</text>
+  <text x="430" y="563" font-size="11.5" fill="#57606a" text-anchor="middle">node、git、编码助手 CLI —— 缺了只提醒不拦</text>
+
+  <line x1="430" y1="576" x2="430" y2="601" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 7 old automation? -->
+  <rect x="330" y="606" width="200" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="430" y="633" font-size="13.5" font-weight="bold" fill="#9a6700" text-anchor="middle">发现旧版数据目录？</text>
+
+  <line x1="430" y1="650" x2="430" y2="675" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="440" y="668" font-size="11.5" fill="#57606a">是</text>
+
+  <!-- migrate -->
+  <rect x="280" y="680" width="300" height="56" rx="8" fill="#ffffff" stroke="#9a6700"/>
+  <text x="430" y="703" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">迁移旧数据</text>
+  <text x="430" y="723" font-size="11.5" fill="#57606a" text-anchor="middle">搬数据 + 改写旧任务单里的路径 + 清旧脚本</text>
+
+  <line x1="430" y1="736" x2="430" y2="761" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- no branch from 7 -->
+  <line x1="330" y1="628" x2="180" y2="628" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="255" y="620" font-size="11.5" fill="#57606a">否（跳过）</text>
+  <line x1="180" y1="628" x2="180" y2="766" stroke="#57606a" stroke-width="2"/>
+  <line x1="180" y1="766" x2="425" y2="766" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 8 worker? -->
+  <rect x="330" y="766" width="200" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="430" y="793" font-size="13.5" font-weight="bold" fill="#9a6700" text-anchor="middle">是「执行者」角色？</text>
+
+  <line x1="430" y1="810" x2="430" y2="835" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="440" y="828" font-size="11.5" fill="#57606a">是</text>
+
+  <!-- watchdog command -->
+  <rect x="280" y="840" width="300" height="56" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+  <text x="430" y="863" font-size="13.5" font-weight="bold" fill="#1a7f37" text-anchor="middle">启动看门狗常驻进程</text>
+  <text x="430" y="883" font-size="11.5" fill="#1a7f37" text-anchor="middle">watchdog start —— 每 5 分钟自动检查一次（无需 cron）</text>
+
+  <!-- author skip -->
+  <line x1="330" y1="788" x2="150" y2="788" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="240" y="780" font-size="11.5" fill="#57606a">否（作者机不需要看门狗）</text>
+  <line x1="150" y1="788" x2="150" y2="922" stroke="#57606a" stroke-width="2"/>
+  <line x1="150" y1="922" x2="325" y2="922" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- worker path down to end -->
+  <line x1="430" y1="896" x2="430" y2="922" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- end -->
+  <rect x="330" y="927" width="200" height="34" rx="17" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="430" y="949" font-size="13" fill="#0969da" text-anchor="middle" font-weight="bold">初始化完成</text>
+</svg>

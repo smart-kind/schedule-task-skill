@@ -32,12 +32,12 @@ task), one row per member task with its trailing notes lines, and ungrouped lega
 | Prompts (committed) | `.schedule-tasks-data/prompts/<id>.md` (+ `prompts/archive/`) |
 | Reports (committed, durable) | `.schedule-tasks-data/reports/<id>.md` — on the task branch until the author's merge-batch lands them |
 | Batch manifests (committed) | `.schedule-tasks-data/batches/<batch>.json` |
-| Live state (worker-local, gitignored) | `.schedule-tasks-data/state/<id>`, `.schedule-tasks-data/state/<id>.notes`, `<id>.pid`, `.dispatch.lock` (legacy `state/batch-<batch>` merge flags no longer written; status still renders them if present) |
+| Live state (worker-local, gitignored) | `.schedule-tasks-data/state/<id>`, `.schedule-tasks-data/state/<id>.notes`, `<id>.pid`, `.watchdog.pid`, `.watchdog.status`, `.dispatch.lock` (legacy `state/batch-<batch>` merge flags no longer written; status still renders them if present) |
 | Per-task run log (worker) | `~/.local/state/schedule-task/<repo-basename>/<id>/run.log` |
 | Raw executor streams (worker) | `~/.local/state/schedule-task/<repo-basename>/<id>/attempt-<n>.jsonl` |
 | Persisted CLI session id (worker) | `~/.local/state/schedule-task/<repo-basename>/<id>/session_id` |
 | Task worktrees (worker) | `~/.local/state/schedule-task/<repo-basename>/worktrees/<id>` |
-| Dispatcher log (worker) | `~/.local/state/schedule-task/<repo-basename>/dispatch.log` (written by the CLI itself — no cron redirect needed) |
+| Watchdog log (worker) | `~/.local/state/schedule-task/<repo-basename>/watchdog.log` (lifecycle + each tick's outcome; written by the CLI itself — no cron redirect needed) |
 
 The worker-local root is namespaced per repo (basename), so two projects on one machine can
 never collide on task ids.
@@ -64,7 +64,7 @@ that were neither done nor a usage limit. Diagnose from the run log and the last
 1. Fix the cause — usually on the task branch (bad prompt assumption, broken base commit).
 2. Delete the state file: `rm .schedule-tasks-data/state/<id>` (and optionally archive the old
    `state/<id>.notes`). No state file = `pending` again.
-3. Wait for the next dispatch tick (≤ 5 min). The existing worktree is reused, so committed work
+3. Wait for the next watchdog tick (≤ 5 min). The existing worktree is reused, so committed work
    is not lost; if the worktree itself is corrupt, remove
    `~/.local/state/schedule-task/<repo>/worktrees/<id>` too for a clean cut.
 
@@ -98,7 +98,7 @@ schedule-task cancel <id> [reason...]     # one task
 schedule-task cancel --all [reason...]    # every pending + running task
 ```
 
-- **Pending** task: state set to `cancelled`, the dispatcher skips it from then on.
+- **Pending** task: state set to `cancelled`, the watchdog skips it from then on.
 - **Running** task: its process group is killed via `state/<id>.pid` — runner, limit-park
   `sleep`, and the coding-agent CLI child all die together (SIGTERM, then SIGKILL after a 5 s
   grace), so cancel works even mid limit-wait.
@@ -116,7 +116,7 @@ schedule-task cancel --all [reason...]    # every pending + running task
 ## Notifications: hooks/notify.sh
 
 `.schedule-tasks-data/hooks/notify.sh` is the extension point for push notifications. It ships as
-a no-op (`exit 0`) and is called by runner / dispatch / cancel only when it exists and is
+a no-op (`exit 0`) and is called by runner / watchdog / cancel only when it exists and is
 executable:
 
 ```
@@ -135,7 +135,7 @@ mattermost-channel-cli send --channel automation "[$event] $id — $msg"
 exit 0
 ```
 
-Keep it fast and failure-tolerant: it runs inside the dispatcher/runner path, so it must never
+Keep it fast and failure-tolerant: it runs inside the watchdog/runner path, so it must never
 hang or exit non-zero (the runtime spawns it detached and never waits).
 
 ## Housekeeping
@@ -143,8 +143,8 @@ hang or exit non-zero (the runtime spawns it detached and never waits).
 - **Retire finished tasks** with `schedule-task archive <id>` — moves envelope + prompt into
   `tasks/archive/` and `prompts/archive/`, refuses anything not `done` or `cancelled`. Reports
   stay put.
-- **Concurrency** is `FL_MAX_CONCURRENCY` (default 2) in the dispatcher's environment;
+- **Concurrency** is `FL_MAX_CONCURRENCY` (default 2) in the watchdog's environment;
   `FL_MAX_CONCURRENCY=1` reproduces the old fully-serial behavior.
 - **`git pull --rebase` conflicts on the worker** should be impossible by the add-only design; if
-  one happens the dispatcher logs and skips the tick rather than forcing anything. Investigate
+  one happens the watchdog logs and skips the tick rather than forcing anything. Investigate
   what non-add-only change crossed the bus.

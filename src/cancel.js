@@ -64,12 +64,12 @@ function cancel({ repo, target, reason, config }) {
     }
     const pid = core.readPid(stateDir, id);
     if (pid && core.isAlive(pid)) {
-      core.killGroup(pid, 'SIGTERM');
-      // Grace window: 5s, then escalate.
+      core.killTree(pid, 'SIGTERM');
+      // Grace window: 5s, then escalate (Windows: taskkill /t /f does it in one).
       for (let i = 0; i < 25 && core.isAlive(pid); i += 1) {
         sleepMs(200);
       }
-      if (core.isAlive(pid)) core.killGroup(pid, 'SIGKILL');
+      if (core.isAlive(pid)) core.killTree(pid, 'SIGKILL');
       console.log(`cancel: killed runner process group (pid ${pid})`);
       result.killed += 1;
     } else if (pid) {

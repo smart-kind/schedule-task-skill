@@ -1,20 +1,20 @@
 ---
 name: schedule-task
-description: Author scheduled, resumable automation tasks (dev/test/audit) from natural language — single tasks or dependency-ordered batches — for any repo that has the .schedule-tasks-data/ runtime. Use when the user wants to schedule autonomous coding-agent work to run later on a worker box — it creates the routing envelope (.schedule-tasks-data/tasks/<id>.json), a plan-harness prompt (.schedule-tasks-data/prompts/<id>.md), and for multi-task batches a manifest (.schedule-tasks-data/batches/<batch>.json), assigns each task to a specific worker (envelope `worker` = the machine id configured at init), then commits them to the inbox branch for the worker dispatcher. Workers only execute; the author merges finished results (merge-batch). Trigger on "schedule a task", "run X autonomously tonight", "create an automation task", "initialize automation".
+description: Author scheduled, resumable automation tasks (dev/test/audit) from natural language — single tasks or dependency-ordered batches — for any repo that has the .schedule-tasks-data/ runtime. Use when the user wants to schedule autonomous coding-agent work to run later on a worker box — it creates the routing envelope (.schedule-tasks-data/tasks/<id>.json), a plan-harness prompt (.schedule-tasks-data/prompts/<id>.md), and for multi-task batches a manifest (.schedule-tasks-data/batches/<batch>.json), assigns each task to a specific worker (envelope `worker` = the machine id configured at init), then commits them to the inbox branch for the worker watchdog. Workers only execute; the author merges finished results (merge-batch). Trigger on "schedule a task", "run X autonomously tonight", "create an automation task", "initialize automation".
 ---
 
 # schedule-task
 
 Turn a natural-language request into one or more scheduled, **resumable** tasks the worker
-dispatcher runs unattended. Output = a routing **envelope** + a **plan-harness prompt** per task
+watchdog runs unattended. Output = a routing **envelope** + a **plan-harness prompt** per task
 (plus a **batch manifest** when one requirement splits into several tasks), committed to the
-repo's inbox branch (default `dev`) where the dispatchers pick them up. Never a one-liner prompt
+repo's inbox branch (default `dev`) where the watchdogs pick them up. Never a one-liner prompt
 — a single sentence is too weak to steer a multi-hour autonomous run.
 
 **Roles are fixed and never blur.** The *author* box owns the whole lifecycle: it initializes the
 repo, drafts tasks (assigning each to a worker + branch + time), and — when all workers are done
 — merges the results (`schedule-task merge-batch <batch>`, PR optional). A *worker* box only
-executes: its cron dispatcher launches tasks whose envelope `.worker` matches its machine id, and
+executes: its always-on watchdog launches tasks whose envelope `.worker` matches its machine id, and
 pushes results back on per-task branches. **Workers never merge.**
 
 Everything here is agent-neutral: the tasks are executed by the coding agent CLI configured per
@@ -51,7 +51,7 @@ first (below) — it creates the data dirs and the worker-local state configurat
      id=vps-01
      ```
      Every machine that runs the runtime gets one: the author box (role `author`), and each
-     worker box (role `worker`). `dispatch` refuses to launch anything unless `role=worker`, so
+     worker box (role `worker`). The watchdog refuses to launch anything unless `role=worker`, so
      an author box can never compete with a worker.
   2. Create the data directories in `<repo>/.schedule-tasks-data/`: `tasks/`, `prompts/`,
      `reports/`, `batches/`, `state/`, plus a no-op `hooks/notify.sh` as the per-project
@@ -66,13 +66,15 @@ first (below) — it creates the data dirs and the worker-local state configurat
   5. Check dependencies on PATH: `node` (running), `git`, and at least one of `claude` / `kimi`.
      Report what's missing; don't fail hard — the deps matter on the *worker*, not necessarily
      on the author's machine.
-  6. Only for a `worker` role, print the exact cron line for that worker box. Replace `<repo>`
-     with the absolute path of the repo **on the worker**:
+  6. Only for a `worker` role, print the exact watchdog command for that worker box. Replace
+     `<repo>` with the absolute path of the repo **on the worker**:
      ```
-     */5 * * * * schedule-task dispatch --repo <repo>
+     schedule-task watchdog start --repo <repo>
      ```
-     The dispatcher's per-repo lock file (inside `state/`) prevents overlapping ticks — no flock
-     needed. Remind the user: `.schedule-tasks-data/state/` stays local to the worker
+     This spawns a resident daemon that checks for due tasks every 300 s (default; `--interval <s>`
+     to change) and launches them as detached runners. No cron needed. Check/stop it with
+     `schedule-task watchdog status | stop`; after a machine reboot, `start` again (or add it to
+     the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
 - **`update`** — update the skill installation itself: pulls the latest source in the repo the
@@ -86,7 +88,7 @@ first (below) — it creates the data dirs and the worker-local state configurat
   `.schedule-tasks-data/reports/` are never moved.
 
 - **`cancel <id> [reason...]`** / **`cancel --all [reason...]`** — stop one task or everything in
-  flight. A **pending** task simply never dispatches again; a **running** one gets its process
+  flight. A **pending** task simply never launches again; a **running** one gets its process
   group killed (runner, limit-park `sleep`, and the coding-agent CLI child all die together — so
   cancel works even mid limit-wait). Cancelling **cascades**: active tasks whose `depends_on`
   chain includes the cancelled id are cancelled too (they could never become eligible). Terminal
@@ -110,6 +112,12 @@ first (below) — it creates the data dirs and the worker-local state configurat
 
 - **`log <id> [-f]`** — tail a task's run log live (this is how you watch a running task now —
   the old `tmux attach` is gone). `-f` follows new lines.
+
+- **`watchdog start|stop|status`** — the resident watchdog, no cron needed. `start` spawns a daemon
+  that checks for due tasks every 300 s (default; `--interval <s>` to change) and launches them
+  as detached runners (capped by `FL_MAX_CONCURRENCY`, default 2). `stop` stops it; `status`
+  shows whether it is alive and what the last check did. Only machines with `role=worker`
+  launch anything; the watchdog NEVER merges. Run these on the worker box.
 
 - **`doctor`** — environment health check: node/git/claude/kimi presence, machine identity,
   data-dir completeness.
@@ -170,7 +178,7 @@ Ask, one at a time, only what you cannot infer from the repo/context:
   ```
   Field notes:
   - **`worker`** — which machine executes this task: the machine id configured at `init`
-    (`.machine` file, default hostname). dispatch only launches tasks whose `worker` equals its
+    (`.machine` file, default hostname). The watchdog only launches tasks whose `worker` equals its
     own id. **Absent `worker` = any worker may take it** (single-worker setups can ignore it
     entirely). A batch may split its tasks across several workers — each runs its own branches in
     parallel; merging is always the author's job.
@@ -205,7 +213,7 @@ Stage all envelopes + prompts + the manifest and commit them together — **one 
 **inbox branch** (default `dev`), then push:
 `git add .schedule-tasks-data/tasks/ .schedule-tasks-data/prompts/ .schedule-tasks-data/batches/ && git commit && git push`.
 Then remind the user:
-- Each worker's dispatcher picks up the tasks assigned to it (`worker` = its machine id) at
+- Each worker's watchdog picks up the tasks assigned to it (`worker` = its machine id) at
   `run_at` (dependencies permitting); unassigned tasks go to whichever worker pulls first.
 - Progress shows as `[[CHECKPOINT ...]]` markers; results land on each task branch +
   `.schedule-tasks-data/reports/<id>.md` — visible via `git fetch` + `schedule-task status`.
@@ -216,11 +224,11 @@ Then remind the user:
 
 - **`id` must equal the envelope filename** (`.schedule-tasks-data/tasks/<id>.json`); ids follow
   `<B|T><YYMMDD>-<seq>-<tag>`.
-- Envelope + prompt must be **committed to the inbox branch before `run_at`** — the dispatcher
+- Envelope + prompt must be **committed to the inbox branch before `run_at`** — the watchdog
   only sees what `git pull` brings.
 - Gates are prose in the prompt. There is no `gate` field in the envelope.
 - **A task runs only on its `worker`** (envelope `.worker` = machine id from `state/.machine`);
-  a machine that did not declare `role=worker` never dispatches.
+  a machine that did not declare `role=worker` never launches anything.
 - **Workers never merge. The author is the only merger** (`schedule-task merge-batch`).
 - `.schedule-tasks-data/state/` is gitignored worker-local truth (incl. `.machine`); `reports/`
   + `batches/` are the committed durable records.

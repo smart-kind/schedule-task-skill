@@ -240,16 +240,20 @@ async function init({ repo, roleArg, idArg, yes }) {
   // 5. Migration from the old data dir.
   await migrateAutomation({ repo, yes });
 
-  // 6. Worker cron line.
+  // 6. Worker watchdog.
   if (role === 'worker') {
     console.log('');
-    console.log('Add this line to your crontab (every 5 minutes):');
+    console.log('启动这台机器的看门狗（常驻进程，每 5 分钟自动检查一次任务，无需 cron）：');
     console.log('');
-    console.log(`*/5 * * * * schedule-task dispatch --repo ${repo}  # >> ~/.local/state/schedule-task/${path.basename(repo)}/dispatch.log`);
+    console.log(`schedule-task watchdog start --repo ${repo}`);
+    console.log('');
+    console.log('  · 查看状态 / 停止：schedule-task watchdog status | stop');
+    console.log('  · 检查间隔默认 300 秒，可用 --interval <秒> 调整');
+    console.log('  · 机器重启后需要重新 start（或把上面这行加入登录启动项）');
     console.log('');
     console.log('Note: .schedule-tasks-data/state/ stays local to this worker (gitignored);');
-    console.log('it is the worker-local truth and never crosses git. A per-repo lock file');
-    console.log('inside state/ prevents overlapping ticks — no flock needed.');
+    console.log('it is the worker-local truth and never crosses git. A per-repo pid file');
+    console.log('inside state/ tracks the watchdog process — no cron/flock needed.');
   }
   console.log('');
   console.log(`init: done — runtime data lives in ${dataRoot}`);

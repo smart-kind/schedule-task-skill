@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="620" fill="#ffffff"/>
+
+  <!-- ===================== Author box ===================== -->
+  <rect x="30" y="70" width="330" height="500" rx="10" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+  <text x="60" y="100" font-size="17" font-weight="bold" fill="#1f2328">作者盒（Author）</text>
+  <text x="60" y="122" font-size="12" fill="#57606a">你的日常开发电脑 · 只负责「发起」与「验收」</text>
+
+  <rect x="55" y="140" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="162" font-size="13" font-weight="bold" fill="#1f2328">① 发起任务</text>
+  <text x="70" y="180" font-size="11.5" fill="#57606a">用自然语言描述：做什么、何时、交给谁</text>
+
+  <rect x="55" y="202" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="224" font-size="13" font-weight="bold" fill="#1f2328">② 生成任务单与说明</text>
+  <text x="70" y="242" font-size="11.5" fill="#57606a">一张机器可读的任务单 + 一份详细说明</text>
+
+  <rect x="55" y="264" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="286" font-size="13" font-weight="bold" fill="#1f2328">③ 指派执行者</text>
+  <text x="70" y="304" font-size="11.5" fill="#57606a">指定哪台机器执行、用哪条分支</text>
+
+  <rect x="55" y="326" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="348" font-size="13" font-weight="bold" fill="#1f2328">④ 提交并推送</text>
+  <text x="70" y="366" font-size="11.5" fill="#57606a">任务进入唯一的通道（Git）</text>
+
+  <rect x="55" y="388" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="410" font-size="13" font-weight="bold" fill="#1f2328">⑤ 查询进度</text>
+  <text x="70" y="428" font-size="11.5" fill="#57606a">随时查看每个任务进行到哪一步</text>
+
+  <rect x="55" y="450" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="70" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 验收合并</text>
+  <text x="70" y="490" font-size="11.5" fill="#57606a">批次全部完成后，把成果并入主开发分支</text>
+
+  <text x="55" y="548" font-size="12" fill="#57606a">一台机器只能是一个角色，不可兼任</text>
+
+  <!-- ===================== Git remote ===================== -->
+  <rect x="395" y="70" width="280" height="500" rx="10" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+  <text x="425" y="100" font-size="17" font-weight="bold" fill="#1f2328">Git 远程仓库</text>
+  <text x="425" y="122" font-size="12" fill="#9a6700">唯一的通道 · 双方只做「加法」互不冲突</text>
+
+  <rect x="420" y="150" width="230" height="90" rx="6" fill="#ffffff" stroke="#9a6700"/>
+  <text x="438" y="174" font-size="13" font-weight="bold" fill="#1f2328">任务入站</text>
+  <text x="438" y="194" font-size="11.5" fill="#57606a">任务单 / 详细说明 / 批次清单</text>
+  <text x="438" y="212" font-size="11.5" fill="#57606a">（提交在主开发分支 dev 上）</text>
+
+  <rect x="420" y="310" width="230" height="90" rx="6" fill="#ffffff" stroke="#9a6700"/>
+  <text x="438" y="334" font-size="13" font-weight="bold" fill="#1f2328">结果出站</text>
+  <text x="438" y="354" font-size="11.5" fill="#57606a">执行报告 / 任务分支</text>
+  <text x="438" y="372" font-size="11.5" fill="#57606a">（每个任务一条专属分支）</text>
+
+  <text x="420" y="480" font-size="12" fill="#9a6700">推送 = 快递；拉取 = 取件</text>
+
+  <!-- ===================== Worker box ===================== -->
+  <rect x="760" y="70" width="330" height="500" rx="10" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+  <text x="790" y="100" font-size="17" font-weight="bold" fill="#1f2328">执行盒（Worker）</text>
+  <text x="790" y="122" font-size="12" fill="#57606a">一台长期在线的机器（如 VPS）· 只负责「干活」</text>
+
+  <rect x="785" y="140" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="162" font-size="13" font-weight="bold" fill="#1f2328">① 看门狗</text>
+  <text x="800" y="180" font-size="11.5" fill="#57606a">每 5 分钟自动检查一次有没有活要干</text>
+
+  <rect x="785" y="202" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="224" font-size="13" font-weight="bold" fill="#1f2328">② 到点开工</text>
+  <text x="800" y="242" font-size="11.5" fill="#57606a">时间到、依赖齐、指派给本机 → 启动任务</text>
+
+  <rect x="785" y="264" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="286" font-size="13" font-weight="bold" fill="#1f2328">③ 执行任务</text>
+  <text x="800" y="304" font-size="11.5" fill="#57606a">调用编码助手（claude / kimi）独立完成</text>
+
+  <rect x="785" y="326" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="348" font-size="13" font-weight="bold" fill="#1f2328">④ 限流续跑</text>
+  <text x="800" y="366" font-size="11.5" fill="#57606a">遇到使用限额 → 等重置后接着干，不重来</text>
+
+  <rect x="785" y="388" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="410" font-size="13" font-weight="bold" fill="#1f2328">⑤ 交回结果</text>
+  <text x="800" y="428" font-size="11.5" fill="#57606a">提交成果 + 写执行报告，推送回通道</text>
+
+  <rect x="785" y="450" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
+  <text x="800" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 绝不合并</text>
+  <text x="800" y="490" font-size="11.5" fill="#57606a">只交结果，合并是作者的专属权利</text>
+
+  <!-- ===================== Arrows ===================== -->
+  <line x1="360" y1="230" x2="390" y2="230" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="338" y="222" font-size="12" fill="#1f2328" text-anchor="end">推送任务</text>
+
+  <line x1="690" y1="180" x2="755" y2="180" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="723" y="172" font-size="12" fill="#1f2328" text-anchor="middle">拉取任务</text>
+
+  <line x1="755" y1="410" x2="690" y2="410" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="723" y="402" font-size="12" fill="#1f2328" text-anchor="middle">推送结果</text>
+
+  <line x1="390" y1="410" x2="360" y2="410" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="338" y="402" font-size="12" fill="#1f2328" text-anchor="end">拉取状态</text>
+
+  <rect x="60" y="585" width="1000" height="26" rx="6" fill="#dafbe1" stroke="#1a7f37"/>
+  <text x="560" y="602" font-size="12" fill="#1a7f37" text-anchor="middle">作者推入「意图」，执行者推回「结果」—— Git 是唯一通道，两边互不接触</text>
+</svg>

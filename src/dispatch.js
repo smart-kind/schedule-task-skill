@@ -1,12 +1,12 @@
 'use strict';
-// dispatch.js — the trigger-layer watchdog (port of automation/dispatch.sh).
-// Runs from cron every 5 minutes. Deterministic and cheap: pull the inbox,
-// launch due + eligible tasks as detached runner processes — bounded by
-// FL_MAX_CONCURRENCY instead of v1's global "any task running → idle"
-// serialization (cap=1 reproduces v1 exactly). Only tasks whose envelope
-// `.worker` equals this machine's id are launched (absent `.worker` = any worker
-// may take it). Workers NEVER merge — batch finalization is the author's job.
-// The multi-hour resilient part is owned by runner.js, not by this tick.
+// dispatch.js — the trigger-layer tick (the watchdog loop calls this every few
+// minutes). Deterministic and cheap: pull the inbox, launch due + eligible tasks
+// as detached runner processes — bounded by FL_MAX_CONCURRENCY instead of v1's
+// global "any task running → idle" serialization (cap=1 reproduces v1 exactly).
+// Only tasks whose envelope `.worker` equals this machine's id are launched
+// (absent `.worker` = any worker may take it). Workers NEVER merge — batch
+// finalization is the author's job. The multi-hour resilient part is owned by
+// runner.js, not by this tick.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,7 +21,7 @@ function dispatch({ repo, config, launch }) {
   const logRoot = core.logRoot(repo, config);
   core.ensureDir(stateDir);
   core.ensureDir(logRoot);
-  const dispatchLog = path.join(logRoot, 'dispatch.log');
+  const dispatchLog = path.join(logRoot, 'watchdog.log');
   const dlog = (msg) => core.logLine(dispatchLog, `dispatch: ${msg}`);
   // launch is injectable for tests; the default spawns the detached runner.
   const spawnRunner = launch || ((id) => {
@@ -45,7 +45,7 @@ function dispatch({ repo, config, launch }) {
   const machine = core.readMachine(stateDir);
   if (machine.role !== 'worker') {
     dlog(`role=${machine.role} — not a worker (.schedule-tasks-data/state/.machine); idle`);
-    return;
+    return { launched: 0 };
   }
 
   // --- dispatch lock: pid file with stale detection (replaces flock) ---
@@ -68,7 +68,7 @@ function dispatch({ repo, config, launch }) {
       }
       if (core.isAlive(holder)) {
         dlog('another dispatch tick is running; idle');
-        return;
+        return { launched: 0 };
       }
       try {
         fs.unlinkSync(lockFile); // stale lock
@@ -82,15 +82,16 @@ function dispatch({ repo, config, launch }) {
         owned = true;
       } catch {
         dlog('could not acquire dispatch lock; idle');
-        return;
+        return { launched: 0 };
       }
     } else {
       dlog(`lock error: ${err.code}; idle`);
-      return;
+      return { launched: 0 };
     }
   }
+  let launchedCount = 0;
   try {
-    tick({ repo, config, stateDir, machine, dlog, spawnRunner });
+    launchedCount = tick({ repo, config, stateDir, machine, dlog, spawnRunner });
   } finally {
     if (owned) {
       try {
@@ -100,6 +101,7 @@ function dispatch({ repo, config, launch }) {
       }
     }
   }
+  return { launched: launchedCount };
 }
 
 function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
@@ -115,23 +117,23 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
   }
   if (running >= maxConcurrency) {
     dlog(`at capacity (${running}/${maxConcurrency} running); idle`);
-    return;
+    return 0;
   }
 
   // Only touch git when tracked files are clean (untracked stray files are benign
   // and ignored; this guard avoids fighting an in-flight edit / interactive session).
   if (!treeClean(repo)) {
     dlog('main tree has tracked changes; skipping tick');
-    return;
+    return 0;
   }
 
   if (!git(repo, ['fetch', 'origin', inbox]).ok) {
     dlog('cannot fetch origin/' + inbox);
-    return;
+    return 0;
   }
   if (!git(repo, ['checkout', inbox]).ok && !git(repo, ['checkout', '-b', inbox, `origin/${inbox}`]).ok) {
     dlog('cannot checkout ' + inbox);
-    return;
+    return 0;
   }
   if (!git(repo, ['pull', '--rebase', 'origin', inbox]).ok) {
     dlog('pull failed (offline?)');
@@ -213,6 +215,7 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
   if (launched === 0) dlog('nothing due');
   // Workers NEVER merge: batch finalization (landing every done task's branch on
   // the merge target, in dependency order) is the author's job — merge-batch.
+  return launched;
 }
 
 module.exports = { dispatch };

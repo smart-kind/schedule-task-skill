@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="700" viewBox="0 0 800 700" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="800" height="700" fill="#ffffff"/>
+
+  <rect x="300" y="20" width="200" height="40" rx="20" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="400" y="45" font-size="14" fill="#0969da" text-anchor="middle" font-weight="bold">查询状态（status）</text>
+
+  <line x1="400" y1="60" x2="400" y2="85" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="90" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="400" y="113" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">识别本机身份</text>
+  <text x="400" y="133" font-size="11.5" fill="#57606a" text-anchor="middle">自动判断：作者机 还是 执行机（可手动指定）</text>
+
+  <line x1="400" y1="146" x2="400" y2="171" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="300" y="176" width="200" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="400" y="203" font-size="13.5" font-weight="bold" fill="#9a6700" text-anchor="middle">本机是执行者？</text>
+
+  <!-- worker branch -->
+  <line x1="300" y1="198" x2="150" y2="198" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="225" y="190" font-size="11.5" fill="#57606a">是</text>
+
+  <rect x="40" y="240" width="320" height="90" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="60" y="266" font-size="13.5" font-weight="bold" fill="#1f2328">读「本地真相」</text>
+  <text x="60" y="288" font-size="11.5" fill="#57606a">运行中 / 完成 / 失败 / 已取消</text>
+  <text x="60" y="306" font-size="11.5" fill="#57606a">附：重试了几次、最新进度标记</text>
+
+  <!-- author branch -->
+  <line x1="500" y1="198" x2="650" y2="198" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="575" y="190" font-size="11.5" fill="#57606a">否（作者机）</text>
+
+  <rect x="480" y="240" width="280" height="90" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="500" y="266" font-size="13.5" font-weight="bold" fill="#1f2328">读「提交过的报告」</text>
+  <text x="500" y="288" font-size="11.5" fill="#57606a">先 git fetch 拉最新</text>
+  <text x="500" y="306" font-size="11.5" fill="#57606a">从每个任务分支上的报告推断状态</text>
+
+  <!-- join -->
+  <line x1="200" y1="330" x2="200" y2="413" stroke="#57606a" stroke-width="2"/>
+  <line x1="620" y1="330" x2="620" y2="413" stroke="#57606a" stroke-width="2"/>
+  <line x1="200" y1="413" x2="245" y2="413" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="385" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="400" y="408" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">汇总所有任务状态</text>
+  <text x="400" y="428" font-size="11.5" fill="#57606a" text-anchor="middle">包括已归档的旧任务</text>
+
+  <line x1="400" y1="441" x2="400" y2="466" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="471" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="400" y="494" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">按批次分组呈现</text>
+  <text x="400" y="514" font-size="11.5" fill="#57606a" text-anchor="middle">进度 x/y、下一步该跑谁、成员明细</text>
+
+  <line x1="400" y1="527" x2="400" y2="552" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="557" width="300" height="56" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="400" y="580" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">输出汇总计数</text>
+  <text x="400" y="600" font-size="11.5" fill="#57606a" text-anchor="middle">几个完成 · 几个失败 · 几个运行中 · 几个排队</text>
+
+  <line x1="400" y1="613" x2="400" y2="638" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="300" y="643" width="200" height="34" rx="17" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="400" y="665" font-size="13" fill="#0969da" text-anchor="middle" font-weight="bold">结束（只读）</text>
+
+  <text x="400" y="696" font-size="11.5" fill="#57606a" text-anchor="middle">status 永远只「看」不「改」—— 查询不会影响任何任务</text>
+</svg>

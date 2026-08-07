@@ -7,7 +7,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 // ---------------------------------------------------------------------------
 // Environment pinning (cron runs with a sparse environment)
@@ -214,6 +214,23 @@ function killGroup(pid, signal) {
   }
 }
 
+// Cross-platform process-tree kill: POSIX uses the process-group signal (the
+// runner/watchdog is spawned detached, so -pid reaches it and its children);
+// Windows has no negative-pid signals, so `taskkill /t` reaps the tree instead.
+function killTree(pid, signal) {
+  if (!pid || pid <= 0) return false;
+  if (process.platform === 'win32') {
+    try {
+      const args = ['/pid', String(pid), '/t', signal === 'SIGKILL' ? '/f' : ''].filter(Boolean);
+      spawnSync('taskkill', args, { stdio: 'ignore', windowsHide: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return killGroup(pid, signal);
+}
+
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
@@ -244,6 +261,7 @@ module.exports = {
   sleep,
   isAlive,
   killGroup,
+  killTree,
   ensureDir,
   logLine,
 };

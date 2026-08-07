@@ -61,7 +61,7 @@ pushes. Workers never merge.
 ## State files — `.schedule-tasks-data/state/` (gitignored, worker-local)
 
 - `.machine` — the machine identity written by `init`: `role=author|worker` + `id=<machine-id>`
-  (default hostname). dispatch exits immediately unless `role=worker`; envelope `.worker` is
+  (default hostname). The watchdog exits immediately unless `role=worker`; envelope `.worker` is
   matched against `id`. status uses it for mode detection.
 - `state/<id>` — the first line is the state word. This contract is load-bearing (status and
   archive parse it): `pending` (implicit — no file exists), `running`, `done`, `failed`,
@@ -69,10 +69,14 @@ pushes. Workers never merge.
 - `state/<id>.notes` — append-only free text. runner appends one timestamped line at each
   milestone (start, every attempt, limit-wait, done, failed); cancel appends the cancel reason.
   Humans may append lines too. Never edited in place, never truncated by the runtime.
-- `state/<id>.pid` — the detached runner's pid (== its process-group id). dispatch writes it at
-  launch; cancel kills `-pid` to stop a running task. Stale pids are detected via signal 0.
-- `state/.dispatch.lock` — the dispatcher's pid lock (atomic `wx` create + stale detection).
-  Replaces the old `flock` dependency; per-repo, so several projects' dispatchers on one machine
+- `state/<id>.pid` — the detached runner's pid (== its process-group id). The watchdog writes it
+  at launch; cancel kills `-pid` to stop a running task. Stale pids are detected via signal 0.
+- `state/.watchdog.pid` — the resident watchdog daemon's pid (written by `watchdog start` and by
+  the daemon itself; `watchdog stop` clears it; `watchdog status` probes it via signal 0).
+- `state/.watchdog.status` — JSON with `{startedAt, lastCheckAt, lastResult, launched, ticks}`;
+  the daemon rewrites it after every check, so `watchdog status` works even without the process.
+- `state/.dispatch.lock` — the per-tick pid lock (atomic `wx` create + stale detection).
+  Replaces the old `flock` dependency; per-repo, so several projects' watchdogs on one machine
   never serialize each other.
 
 Because `state/` is gitignored, it never crosses the git bus: the author box infers state from

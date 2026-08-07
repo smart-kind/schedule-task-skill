@@ -2,7 +2,7 @@
 
 A SKILL.md-compatible skill that teaches any coding agent CLI (Kimi Code, Codex, Claude Code) to
 author **scheduled, resumable automation tasks** — dev / test / audit — that a deterministic
-dispatcher executes unattended on a worker box (e.g. a VPS). You describe the work in natural
+watchdog executes unattended on a worker box (e.g. a VPS). You describe the work in natural
 language from any repo; the skill produces a routing envelope + a plan-harness prompt (plus a
 batch manifest for multi-task requests), commits them to the repo's inbox branch, and the worker
 picks them up at the scheduled time, survives usage-limit windows, and pushes back results.
@@ -10,9 +10,9 @@ picks them up at the scheduled time, survives usage-limit windows, and pushes ba
 Git is the only channel: you push *intent*, the worker pushes back *results*.
 
 ```
- Author box (any laptop)         Git remote              Worker box(es) (VPS, cron every 5 min)
+ Author box (any laptop)         Git remote              Worker box(es) (VPS, watchdog)
  ┌──────────────────────┐   ┌────────────────┐   ┌───────────────────────────────────┐
- │ /schedule-task       │   │ tasks/*.json   │   │ schedule-task dispatch (pid lock) │
+ │ /schedule-task       │   │ tasks/*.json   │   │ schedule-task watchdog (daemon)   │
  │  DISCUSS→DRAFT→      │──►│ prompts/*.md   │──►│  reads state/.machine role+id     │
  │  REVIEW→COMMIT       │   │ batches/*.json │   │  only launches .worker == my id  │
  │  envelope + prompt   │   │                │   │  └─ detached runner → run <id>    │
@@ -83,11 +83,14 @@ package is ever published. To update later, run `./install.sh --update` (pulls +
    `.schedule-tasks-data/state/.machine` (gitignored), creates the data directories
    `.schedule-tasks-data/{tasks,prompts,reports,batches,state,hooks}/` with a no-op
    `hooks/notify.sh`, merges the gitignore snippet, checks dependencies (`node`, `git`, plus
-   `claude` or `kimi`), and — only for a `worker` — prints the worker's cron line:
+   `claude` or `kimi`), and — only for a `worker` — prints the watchdog command:
    ```
-   */5 * * * * schedule-task dispatch --repo <repo>
+   schedule-task watchdog start --repo <repo>
    ```
-   Add that line to the worker's crontab. `.schedule-tasks-data/state/` stays worker-local
+   Run it on the worker: a resident daemon checks for due tasks every 300 s (default;
+   `--interval <s>` to change) and launches them as detached runners. No cron needed. Inspect or
+   stop it with `schedule-task watchdog status | stop`; after a reboot, `start` again (or add it
+   to the login startup). `.schedule-tasks-data/state/` stays worker-local
    (gitignored). If the repo still has the old `automation/` data dir, `init` offers to migrate
    it (move + rewrite `prompt_file` paths).
 2. **Schedule your first task.** In the repo, tell your agent: "schedule a task: <what you want
@@ -121,7 +124,8 @@ schedule-task/
 │   ├── git.js                # thin `git` wrappers (the only external channel)
 │   ├── agents.js             # coding-agent router: claude/kimi profiles, stream-json parsing
 │   ├── runner.js             # resilient per-task runner (worktree, resume, limit-park, report)
-│   ├── dispatch.js           # watchdog tick (pid lock, eligibility, detached spawn)
+│   ├── dispatch.js           # the tick: eligibility, concurrency cap, detached spawn (called by watchdog)
+│   ├── watchdog.js           # watchdog start/stop/status — the resident daemon loop
 │   ├── status.js             # read-only reporter (worker/author modes, batch grouping)
 │   ├── cancel.js             # cancel + cascade + process-group kill
 │   ├── archive.js            # retire finished tasks into archive/
@@ -144,13 +148,13 @@ Per-project data (created by `init`, gitignored part is `state/`):
 ```
 <repo>/.schedule-tasks-data/
 ├── tasks/  prompts/  reports/  batches/    # committed (inbox/outbox; each has archive/)
-├── state/                                  # gitignored: .machine, <id>, <id>.notes, <id>.pid, .dispatch.lock
+├── state/                                  # gitignored: .machine, <id>, <id>.notes, <id>.pid, .watchdog.pid, .watchdog.status
 └── hooks/notify.sh                         # per-project notification hook
 ```
 
 Worker-local run state (per machine, per repo): `~/.local/state/schedule-task/<repo-basename>/`
 with `<id>/run.log`, `<id>/attempt-<n>.jsonl`, `<id>/session_id`, `worktrees/<id>`,
-`dispatch.log`.
+`watchdog.log`.
 
 ## Back-compat & rollback
 

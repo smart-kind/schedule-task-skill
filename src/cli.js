@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const core = require('./core.js');
 
-const VALUE_FLAGS = new Set(['--repo', '-r', '--role', '--id']);
+const VALUE_FLAGS = new Set(['--repo', '-r', '--role', '--id', '--interval']);
 
 function parseArgs(argv) {
   const out = { repo: null, command: null, args: [], flags: {} };
@@ -42,18 +42,19 @@ Commands:
   init [--role author|worker] [--id <mid>] [--yes]
       Install the runtime into the current repo: create .schedule-tasks-data/,
       declare this machine's role+id, merge gitignore, check dependencies,
-      print the worker cron line. Migrates an old automation/ data dir when found.
+      print the worker watchdog command. Migrates an old automation/ data dir when found.
   status [--self-test]
       Read-only report of every scheduled task (worker = live state, author =
       inferred from committed reports on the task branches). Run git fetch first.
-  dispatch
-      Watchdog tick (cron every 5 min): pull the inbox branch, launch due +
-      eligible tasks as detached runners, capped by FL_MAX_CONCURRENCY (default 2).
-      Only a machine with role=worker in state/.machine dispatches. Never merges.
+  watchdog start|stop|status [--interval <seconds>]
+      看门狗（常驻，无需 cron）：start 拉起一个常驻进程，每 <interval> 秒
+      （默认 300）检查一次到点任务并启动为后台执行器（并发上限
+      FL_MAX_CONCURRENCY，默认 2）；stop 停止；status 查看存活与上次检查
+      结果。仅 role=worker 的机器会开工；看门狗绝不合并。
   run <id>
-      Resilient per-task runner (spawned detached by dispatch; also run by hand):
-      worktree isolation, CLI-session resume, usage-limit park, sentinel+commit
-      verification, report + push.
+      Resilient per-task runner (spawned detached by the watchdog; also run by
+      hand): worktree isolation, CLI-session resume, usage-limit park,
+      sentinel+commit verification, report + push.
   cancel <id>|--all [reason...]
       Cancel pending/running tasks; kills a running runner's process group.
       Cascades to tasks that depend on the cancelled id. Worker-local only.
@@ -81,6 +82,7 @@ Global options:
 Environment seams (all optional):
   FL_MAX_CONCURRENCY  concurrent runners (default 2; 1 = fully serial)
   FL_INBOX            inbox branch (default dev)
+  FL_WATCHDOG_INTERVAL  watchdog check interval in seconds (default 300; --interval wins)
   FL_MODE             force status mode: worker|author
   FL_AUTO_ROOT        status data-root override (self-test)
   FL_LOG_ROOT         worker run-state root override (self-test)
@@ -133,10 +135,27 @@ async function main(argv) {
       process.stdout.write(`${render({ repo, autoRoot, logRoot, mode })}\n`);
       return 0;
     }
-    case 'dispatch': {
-      const { dispatch } = require('./dispatch.js');
-      dispatch({ repo, config });
-      return 0;
+    case 'watchdog': {
+      const { start, stop, status, run } = require('./watchdog.js');
+      const sub = args[0];
+      if (!sub) {
+        console.error('usage: schedule-task watchdog start|stop|status [--interval <seconds>]');
+        return 2;
+      }
+      const interval = Number(flags['--interval'] || process.env.FL_WATCHDOG_INTERVAL || 300);
+      if (!Number.isInteger(interval) || interval <= 0) {
+        console.error('watchdog: --interval must be a positive number of seconds');
+        return 2;
+      }
+      switch (sub) {
+        case 'start': return start({ repo, config, interval }).exit;
+        case 'stop': return stop({ repo, config }).then((r) => r.exit);
+        case 'status': return status({ repo, config }).exit;
+        case 'run': return run({ repo, config, interval }); // daemon body — never returns
+        default:
+          console.error(`watchdog: unknown sub-command '${sub}' (want start|stop|status)`);
+          return 2;
+      }
     }
     case 'run': {
       const id = args[0];

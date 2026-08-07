@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="960" viewBox="0 0 980 960" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="980" height="960" fill="#ffffff"/>
+
+  <rect x="360" y="20" width="260" height="40" rx="20" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="490" y="45" font-size="14" fill="#0969da" text-anchor="middle" font-weight="bold">看门狗：常驻进程，每 5 分钟自动醒来（watchdog）</text>
+
+  <line x1="490" y1="60" x2="490" y2="85" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- worker check -->
+  <rect x="340" y="90" width="300" height="50" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="490" y="113" font-size="13.5" font-weight="bold" fill="#9a6700" text-anchor="middle">这台机器是执行者吗？</text>
+  <text x="490" y="131" font-size="11" fill="#9a6700" text-anchor="middle">（看门狗只在执行机上运行）</text>
+
+  <line x1="340" y1="115" x2="160" y2="115" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="250" y="107" font-size="11.5" fill="#57606a">否</text>
+  <rect x="60" y="95" width="100" height="40" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="110" y="119" font-size="12" fill="#57606a" text-anchor="middle">退出（作者机不干活）</text>
+
+  <line x1="490" y1="140" x2="490" y2="165" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="500" y="158" font-size="11.5" fill="#57606a">是</text>
+
+  <!-- lock -->
+  <rect x="340" y="170" width="300" height="50" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="490" y="193" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">领取「检查令牌」</text>
+  <text x="490" y="211" font-size="11" fill="#57606a" text-anchor="middle">同一时间只允许一次检查，避免重复开工</text>
+
+  <line x1="490" y1="220" x2="490" y2="245" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- capacity -->
+  <rect x="340" y="250" width="300" height="50" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="490" y="273" font-size="13.5" font-weight="bold" fill="#9a6700" text-anchor="middle">还有空闲执行名额吗？</text>
+  <text x="490" y="291" font-size="11" fill="#9a6700" text-anchor="middle">默认同时最多跑 2 个任务（可调）</text>
+
+  <line x1="340" y1="275" x2="160" y2="275" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="250" y="267" font-size="11.5" fill="#57606a">否</text>
+  <rect x="60" y="255" width="100" height="40" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="110" y="279" font-size="12" fill="#57606a" text-anchor="middle">退出（下次再看）</text>
+
+  <line x1="490" y1="300" x2="490" y2="325" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="500" y="318" font-size="11.5" fill="#57606a">是</text>
+
+  <!-- pull -->
+  <rect x="340" y="330" width="300" height="50" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="490" y="353" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">拉取最新任务清单</text>
+  <text x="490" y="371" font-size="11" fill="#57606a" text-anchor="middle">看看作者有没有新派发、新修改</text>
+
+  <line x1="490" y1="380" x2="490" y2="405" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- per-task loop -->
+  <rect x="320" y="410" width="340" height="380" rx="10" fill="#f6f8fa" stroke="#9a6700" stroke-dasharray="6 4"/>
+  <text x="490" y="434" font-size="13" font-weight="bold" fill="#9a6700" text-anchor="middle">逐个任务检查（排队中的任务）</text>
+
+  <rect x="350" y="448" width="280" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="490" y="467" font-size="13" font-weight="bold" fill="#9a6700" text-anchor="middle">任务指定了别的机器？</text>
+  <text x="490" y="484" font-size="11" fill="#9a6700" text-anchor="middle">—— 跳过，等那台机器来接</text>
+
+  <line x1="490" y1="492" x2="490" y2="516" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="350" y="521" width="280" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="490" y="540" font-size="13" font-weight="bold" fill="#9a6700" text-anchor="middle">还没到开始时间？</text>
+  <text x="490" y="557" font-size="11" fill="#9a6700" text-anchor="middle">—— 跳过，等时间到了再开工</text>
+
+  <line x1="490" y1="565" x2="490" y2="589" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="350" y="594" width="280" height="44" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+  <text x="490" y="613" font-size="13" font-weight="bold" fill="#9a6700" text-anchor="middle">它依赖的任务还没完成？</text>
+  <text x="490" y="630" font-size="11" fill="#9a6700" text-anchor="middle">—— 跳过，先等前面的落地</text>
+
+  <line x1="490" y1="638" x2="490" y2="662" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="350" y="667" width="280" height="50" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+  <text x="490" y="690" font-size="13.5" font-weight="bold" fill="#1a7f37" text-anchor="middle">条件齐了 → 启动任务执行</text>
+  <text x="490" y="708" font-size="11" fill="#1a7f37" text-anchor="middle">后台独立进程，看门狗不陪跑</text>
+
+  <line x1="490" y1="717" x2="490" y2="741" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="350" y="746" width="280" height="44" rx="8" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="490" y="765" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">登记「运行中」+ 记录进程号</text>
+  <text x="490" y="782" font-size="11" fill="#57606a" text-anchor="middle">下次检查就不会重复启动它</text>
+
+  <line x1="490" y1="790" x2="490" y2="814" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="500" y="807" font-size="11.5" fill="#57606a">还有任务且有名额</text>
+
+  <!-- loop back -->
+  <line x1="320" y1="600" x2="250" y2="600" stroke="#57606a" stroke-width="2" stroke-dasharray="5 4"/>
+  <line x1="250" y1="600" x2="250" y2="430" stroke="#57606a" stroke-width="2" stroke-dasharray="5 4"/>
+  <line x1="250" y1="430" x2="345" y2="430" stroke="#57606a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="250" y="525" font-size="11" fill="#9a6700" transform="rotate(-90 250 525)">循环检查下一个任务</text>
+
+  <line x1="490" y1="814" x2="490" y2="850" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="500" y="837" font-size="11.5" fill="#57606a">没有下一个了</text>
+
+  <!-- end -->
+  <rect x="340" y="855" width="300" height="50" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="490" y="878" font-size="13.5" font-weight="bold" fill="#0969da" text-anchor="middle">归还令牌，本次检查结束</text>
+  <text x="490" y="896" font-size="11" fill="#0969da" text-anchor="middle">看门狗绝不合并任何分支——那是作者的活</text>
+</svg>
