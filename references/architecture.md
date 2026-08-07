@@ -1,6 +1,6 @@
 # Architecture
 
-How the automation runtime works and why it is shaped this way. Self-contained; this is the
+How the schedule-task runtime works and why it is shaped this way. Self-contained; this is the
 canonical description of the design.
 
 ## Two-layer architecture
@@ -10,28 +10,31 @@ layers with different owners, so the fragile part (long-running, limit-prone) is
 the trigger stays trivial.
 
 ```
-  TRIGGER layer  →  decides WHEN + WHAT   (cron → dispatch.sh)         ← deterministic, seconds
-  DRIVER layer   →  runs it to completion (run-task.sh in tmux)        ← resilient, hours-long
-  EXECUTOR       →  does the actual work  (coding-agent.sh → claude|kimi -p)
+  TRIGGER layer  →  decides WHEN + WHAT   (cron → dispatch)                   ← deterministic, seconds
+  DRIVER layer   →  runs it to completion (runner in a detached process)      ← resilient, hours-long
+  EXECUTOR       →  does the actual work  (agents.js → claude|kimi -p)
 ```
 
-- **`dispatch.sh`** (worker, cron every 5 min under `flock`) — refuses to run unless
-  `automation/state/.machine` says `role=worker`; then pulls the inbox branch, finds due +
-  eligible tasks **whose envelope `.worker` equals this machine's id** (absent `.worker` = any
-  worker may take it), launches each in a detached tmux session (`task-<id>`). Concurrency is
-  capped by `FL_MAX_CONCURRENCY` (default 2; `=1` reproduces the old fully-serial behavior). It
-  never merges anything. Returns immediately — the multi-hour part is not the cron tick's job.
-- **`run-task.sh <id>`** (worker, inside tmux) — executes the task's prompt in an isolated git
-  worktree on the task branch; survives usage-limit windows by parking until the reset time and
-  resuming the same CLI session with full context; verifies completion (the `[[TASK_DONE <id> …]]`
+- **`dispatch`** (worker, cron every 5 min) — refuses to run unless
+  `.schedule-tasks-data/state/.machine` says `role=worker`; acquires a per-repo **pid lock file**
+  (`state/.dispatch.lock`, with stale-lock detection — the flock replacement), pulls the inbox
+  branch, finds due + eligible tasks **whose envelope `.worker` equals this machine's id**
+  (absent `.worker` = any worker may take it), marks each `running` + writes its pid, and spawns
+  each as a **detached runner process** (new session → its pid is its process-group id, so
+  `cancel` can kill the whole tree). Concurrency is capped by `FL_MAX_CONCURRENCY` (default 2;
+  `=1` reproduces the old fully-serial behavior). It never merges anything. Returns immediately —
+  the multi-hour part is not the cron tick's job.
+- **`runner <id>`** (worker, detached) — executes the task's prompt in an isolated git worktree
+  on the task branch; survives usage-limit windows by parking until the reset time and resuming
+  the same CLI session with full context; verifies completion (the `[[TASK_DONE <id> …]]`
   sentinel **and** a new commit — trust-but-verify, the executor never self-certifies); commits an
-  autosave + `automation/reports/<id>.md`, pushes the branch, records state.
+  autosave + `.schedule-tasks-data/reports/<id>.md`, pushes the branch, records state.
 - **Executor** — the coding agent CLI running the plan-harness prompt. It is the only component
   with a brain; it fans out its own sub-agents, discovers the repo's build/test commands, and
   decides when the gates pass.
 
-**No AI in the control loop.** dispatch.sh and run-task.sh are deterministic shell. Every
-decision that requires judgment happens inside the executor, never in the orchestrator.
+**No AI in the control loop.** dispatch and runner are deterministic Node. Every decision that
+requires judgment happens inside the executor, never in the orchestrator.
 
 ## Topology: author box ⟷ git ⟷ one or more workers
 
@@ -41,10 +44,10 @@ decision that requires judgment happens inside the executor, never in the orches
   /schedule-task (NL)               │                      │
   commit envelope+prompt            │                      │
   + batch manifest ──push──────────►│                      │
-  (each task names its worker)      │◄── git pull ─────────┤  cron tick every 5 min (flock)
+  (each task names its worker)      │◄── git pull ─────────┤  cron tick every 5 min (pid lock)
        │                            │     scan tasks/*.json: .worker == my id?
        │                            │     due? pending? depends_on all done?
-       │                            │     launch ──► tmux task-<id> ──► run-task.sh
+       │                            │     launch ──► detached runner ──► agents.js
        │                            │                      │   worktree on automation/<id>
        │                            │                      │   claude|kimi -p runs the prompt
        │                            │                      │   ┌─ usage limit ─┐
@@ -54,8 +57,7 @@ decision that requires judgment happens inside the executor, never in the orches
        │                            │     task branch + reports/<id>.md (per worker)
        │  git fetch ◄───────────────┤                      │
        │  status: read reports      │                      │
-       │  from each origin/<branch> │                      │
-       │  merge-batch.sh: land all  │                      │
+       │  merge-batch: land all     │                      │
        │  done branches → dev       │                      │
        │  push (PR optional)        │                      │
 ```
@@ -87,39 +89,54 @@ branches. No service, no API, no shared filesystem.
 6. **Per-task branches; never `main`/`dev` directly.** The executor's blast radius is bounded by
    branch guardrails ("never touch main"), and results arrive as reviewable branch commits.
 7. **Machine identity, no cross-machine racing.** Every machine that runs the runtime declares
-   itself at `init` in gitignored `automation/state/.machine`: `role=author|worker` +
+   itself at `init` in gitignored `.schedule-tasks-data/state/.machine`: `role=author|worker` +
    `id=<machine-id>`. Only `role=worker` machines dispatch; a task runs only on its named
    `worker` (absent = any worker may take it). Because state/ never crosses git, this declaration
    is the only coordination between machines — and it is enough, because each task has exactly
-   one owner. (This replaces the old assumption "only the single VPS installs cron", which broke
-   the moment a second machine — even the author's laptop — also pulled the inbox.)
+   one owner.
 8. **The author is the only merger.** Workers never merge. When every task in a batch is done,
-   the author runs `automation/merge-batch.sh <batch-id>`: it fetches origin, lands each task
+   the author runs `schedule-task merge-batch <batch-id>`: it fetches origin, lands each task
    branch whose committed report says `(done)` onto the manifest's `merge_target` (default `dev`)
    in manifest (dependency) order, and pushes (PR optional). A conflict aborts the merge
    (`git merge --abort`) and exits non-zero — resolution is a human/agent decision, never an
    automatic force-through. Idempotent, so a fix + re-run resumes where it stopped.
-9. **Liveness by PID, not by silence.** A task is dead only when its process is gone. An executor
-   fanning out sub-agents can legitimately emit nothing for 10+ minutes — never kill on "the pane
-   went quiet".
+9. **Liveness by PID, not by silence.** A task is dead only when its process group is gone. An
+   executor fanning out sub-agents can legitimately emit nothing for 10+ minutes — never kill on
+   "the stream went quiet". `cancel` kills the process group recorded in `state/<id>.pid`
+   (SIGTERM, then SIGKILL after a 5 s grace window).
 
-## The coding-agent.sh router
+## The agents.js router
 
-`run-task.sh` never calls a CLI directly. It delegates to `automation/coding-agent.sh`:
+`runner` never calls a CLI directly. It delegates to `src/agents.js`:
 
 ```
-coding-agent.sh <agent> fresh|resume <model> <session-id|-> <prompt-text>
+invoke({ agent, mode, model, sessionId, prompt, cwd, attemptFile, sentinel, config })
+  → { rc, sessionId, resetEpoch, sentinelHit, stderr }
 ```
 
 - `<agent>` selects a **profile** (`claude` | `kimi`); each profile encapsulates four things:
   invocation flags, resume mechanics, session-id extraction from the stream, and usage-limit
-  detection (including parsing the reset time). run-task.sh sees no CLI differences.
-- Stream-json events go to stdout (captured as `attempt-<n>.jsonl`); the session id is extracted
-  from the profile-specific meta event.
-- **Exit-code contract** — this is the interface run-task.sh's resilience loop is built on:
+  detection (including parsing the reset time). runner sees no CLI differences.
+- The CLI's stream-json goes to stdout verbatim (captured as `attempt-<n>.jsonl`) and is parsed
+  **line by line** while streaming — the bash-era text greps are gone. Session ids come from the
+  profile-specific event (claude: the opening `system` event; kimi: the `meta`
+  `session.resume_hint` event).
+- **Exit-code contract** — this is the interface runner's resilience loop is built on:
   - `0` — normal exit (check for the `TASK_DONE` sentinel)
   - `75` — usage/session limit hit (park until reset, then resume)
   - anything else — ambiguous (bounded retry with backoff; after repeated ambiguous exits the
     runner drops the session and does one clean fresh run; past the hard cap it aborts as `failed`)
 
-Adding a new executor CLI = adding one profile to coding-agent.sh. Nothing else changes.
+Adding a new executor CLI = adding one profile to agents.js. Nothing else changes.
+
+## Process model (replaces tmux)
+
+- dispatch spawns each runner with `spawn(node, [cli, run, id, --repo, repo], {detached: true})`.
+  A detached child becomes a session/process-group leader: its pid **is** its pgid, so
+  `kill(-pid, SIGTERM)` reaps the runner, its limit-park `sleep`, and the coding-agent CLI child
+  in one shot. dispatch `unref()`s the child — the cron tick never waits on the multi-hour run.
+- The runner writes its own logs (run.log), the agent streams (`attempt-*.jsonl`), and the
+  session id itself; `schedule-task log <id> -f` tails the run log, replacing `tmux attach`.
+- Concurrency is enforced by the dispatcher (`FL_MAX_CONCURRENCY`) plus the `running` state
+  flags; the per-repo pid lock makes the launch decision single-writer, so two cron ticks can
+  never double-launch the same task.
