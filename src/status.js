@@ -17,7 +17,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const core = require('./core.js');
-const { showFile } = require('./git.js');
+const { git, showFile } = require('./git.js');
 
 const COL = (s, n) => s.padEnd(n);
 
@@ -69,36 +69,182 @@ function reltime(t, now) {
   return d >= 0 ? `in ${u}` : `${u} ago`;
 }
 
-// Best-effort count of live processes in the tree rooted at pid (the runner,
-// its executor CLI, and any tools the CLI spawned). Returns 0 for a missing or
-// dead pid, null when the platform cannot count (no /proc and no `ps`).
-function countTree(pid) {
-  if (!pid) return null;
-  if (!core.isAlive(pid)) return 0;
-  let n = 1;
-  let children = [];
+// ---- live process tree (worker mode) ---------------------------------------
+// Renders the tree watchdog → runner → executor CLI with each process's elapsed
+// running time, so "running but actually dead" states are obvious at a glance.
+
+function dur(sec) {
+  if (!Number.isFinite(sec)) return '?';
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m`;
+}
+
+// Direct children of pid (via /proc on Linux, `ps --ppid` elsewhere).
+// null = cannot tell (no /proc, no ps).
+function childPids(pid) {
   try {
-    // Linux: /proc/<pid>/task/<pid>/children lists direct children without
-    // spawning a process. Nothing to read for a zombie the kernel keeps around
-    // but already dead — /proc/task disappears when the process exits.
     const kids = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim();
-    if (kids) children = kids.split(/\s+/).map(Number).filter(Boolean);
+    return kids ? kids.split(/\s+/).map(Number).filter(Boolean) : [];
   } catch {
-    // Fallback: `ps --ppid` on systems without /proc.
     try {
       const { execFileSync } = require('node:child_process');
       const out = execFileSync('ps', ['-o', 'pid=', '--ppid', String(pid)], { encoding: 'utf8' });
-      children = out.split('\n').map((l) => Number(l.trim())).filter(Boolean);
+      return out.split('\n').map((l) => Number(l.trim())).filter(Boolean);
     } catch {
-      return null; // cannot count — caller omits the field
+      return null;
     }
   }
-  for (const c of children) {
-    const sub = countTree(c);
-    if (sub === null) return null;
-    n += sub;
+}
+
+// { pid: { ppid, etimes, args } } for a set of pids; empty on failure.
+function psInfo(pids) {
+  const info = new Map();
+  if (!pids.length) return info;
+  try {
+    const { execFileSync } = require('node:child_process');
+    const out = execFileSync(
+      'ps', ['-o', 'pid=', '-o', 'ppid=', '-o', 'etimes=', '-o', 'args=', '-p', pids.join(',')],
+      { encoding: 'utf8' }
+    );
+    for (const line of out.split('\n')) {
+      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+      if (m) info.set(Number(m[1]), { ppid: Number(m[2]), etimes: Number(m[3]), args: m[4] });
+    }
+  } catch {
+    /* ps unavailable */
   }
-  return n;
+  return info;
+}
+
+// pid plus every descendant, breadth-first while /proc (or ps) still answers.
+function subtree(root, acc) {
+  acc.push(root);
+  const kids = childPids(root);
+  if (kids === null) return acc;
+  for (const c of kids) subtree(c, acc);
+  return acc;
+}
+
+// Human label: watchdog / run <id> / claude|kimi / argv[0] basename.
+function procLabel(info) {
+  const args = (info.args || '').trim();
+  if (/schedule-task\.js watch/.test(args)) return 'watchdog';
+  const rm = /schedule-task\.js run\s+(\S+)/.exec(args);
+  if (rm) return `run ${rm[1]}`;
+  const am = /^(?:\/[\w/.-]*\/)?(claude|kimi)(?:\s|$)/.exec(args);
+  if (am) return am[1];
+  return (args.split(/\s+/)[0].split('/').pop() || '?').slice(0, 20);
+}
+
+// Tree lines under the watchdog: one branch per running task (runner pid from
+// state/<id>.pid, regardless of its real parent — manual `run` restarts work
+// too), each with its executor CLI below. null when there is nothing live.
+function processTree(autoRoot, stateDir) {
+  let wpid = 0;
+  try {
+    wpid = Number(fs.readFileSync(path.join(stateDir, '.watchdog.pid'), 'utf8').trim()) || 0;
+  } catch {
+    wpid = 0;
+  }
+  const watchdogAlive = wpid > 0 && core.isAlive(wpid);
+
+  // Running tasks: state/<id> == 'running' with a live runner pid.
+  const runners = [];
+  let files = [];
+  try {
+    files = fs.readdirSync(stateDir);
+  } catch {
+    files = [];
+  }
+  for (const f of files) {
+    if (f.startsWith('.') || f.endsWith('.notes') || f.endsWith('.pid')) continue;
+    if (core.readState(stateDir, f) !== 'running') continue;
+    const pid = core.readPid(stateDir, f);
+    if (pid && core.isAlive(pid)) runners.push({ id: f, pid });
+  }
+  if (!watchdogAlive && !runners.length) return null;
+
+  // Collect watchdog + every runner subtree into one pid set.
+  const pidToTask = new Map(); // runner pid → task id
+  const allPids = [];
+  if (watchdogAlive) allPids.push(wpid);
+  for (const r of runners) {
+    subtree(r.pid, allPids);
+    pidToTask.set(r.pid, r.id);
+  }
+  const info = psInfo(allPids);
+  if (!info.size) return null;
+
+  const byParent = new Map();
+  for (const pid of allPids) {
+    const it = info.get(pid);
+    if (!it) continue;
+    if (!byParent.has(it.ppid)) byParent.set(it.ppid, []);
+    byParent.get(it.ppid).push(pid);
+  }
+  // Rendered as its own branch below — don't let the watchdog's natural
+  // children recursion duplicate a task runner.
+  if (watchdogAlive) {
+    byParent.set(wpid, (byParent.get(wpid) || []).filter((p) => !pidToTask.has(p)));
+  }
+
+  const lines = ['processes:'];
+  const render = (pid, prefix, connector) => {
+    const it = info.get(pid);
+    if (!it) return;
+    const label = pidToTask.has(pid) ? `run ${pidToTask.get(pid)}` : procLabel(it);
+    let line = `${prefix}${connector}${label} (${pid}) · ${dur(it.etimes)}`;
+    if (/^(claude|kimi)$/.test(procLabel(it)) && it.args) {
+      line += ` · ${it.args.length > 110 ? `${it.args.slice(0, 110)}…` : it.args}`;
+    }
+    lines.push(line);
+    const kids = (byParent.get(pid) || []).sort((a, b) => a - b);
+    kids.forEach((k, i) => {
+      const last = i === kids.length - 1;
+      render(k, `${prefix}${connector ? (last ? '   ' : '│  ') : ''}`, last ? '└─ ' : '├─ ');
+    });
+  };
+
+  if (watchdogAlive) render(wpid, '', '');
+  runners.forEach((r, i) => {
+    const last = i === runners.length - 1;
+    const prefix = watchdogAlive ? (last ? '   ' : '│  ') : '';
+    const connector = watchdogAlive ? (last ? '└─ ' : '├─ ') : '';
+    render(r.pid, prefix, connector);
+  });
+  return lines;
+}
+
+// Running task progress: every commit the task branch adds on top of the inbox
+// branch (newest first) plus a short summary distilled from the meaningful ones
+// (system autosaves skipped). null when there is no worktree to read.
+function taskProgress({ logRoot, id }) {
+  const wt = path.join(logRoot, 'worktrees', id);
+  if (!fs.existsSync(path.join(wt, '.git'))) return null;
+  const inbox = core.readConfig().inbox;
+  const r = git(wt, ['log', `${inbox}..HEAD`, '--pretty=format:%ad|%s', '--date=format:%H:%M']);
+  if (!r.ok) return null;
+  const commits = r.stdout.split('\n').filter(Boolean).map((l) => {
+    const i = l.indexOf('|');
+    return { time: i >= 0 ? l.slice(0, i) : '?', msg: i >= 0 ? l.slice(i + 1) : l };
+  });
+  const meaningful = commits.filter((c) => !/autosave|report: task|TASK_DONE/i.test(c.msg));
+  let summary = '';
+  if (meaningful.length) {
+    summary = meaningful.map((c) => c.msg).join('；');
+    if (summary.length > 20) summary = `${summary.slice(0, 20)}…`;
+  }
+  return { commits, summary };
+}
+
+// Progress block lines under a running task row: every commit + distilled summary.
+function sayProgress(row, say) {
+  if (!row.progress.commits.length) {
+    say('  提交: 暂无（任务尚未提交代码）');
+    return;
+  }
+  say(`  提交 (${row.branch || '?'}):`);
+  for (const c of row.progress.commits) say(`    [${c.time}] ${c.msg}`);
+  say(`  总结: ${row.progress.summary || '尚无实质提交（只有自动保存）'}`);
 }
 
 // Compute "state<TAB>detail" for one task file, honouring the current mode.
@@ -110,7 +256,9 @@ function taskRow({ repo, autoRoot, logRoot, taskFile, id, archived, mode, live }
     let started = null;
     try {
       const text = fs.readFileSync(rl, 'utf8');
-      att = (text.match(/attempt \d+/g) || []).length;
+      // Attempt count of the LATEST run only — manual re-runs after a reboot
+      // each restart the counter, so counting every line would over-report.
+      att = (text.split(/^\[[^\]]*\] start id=/m).pop().match(/attempt \d+/g) || []).length;
       const ckpts = text.match(/\[\[CHECKPOINT[^\]]*\]\]/g) || [];
       if (ckpts.length) ckpt = ckpts[ckpts.length - 1];
       const first = text.split('\n', 1)[0] || '';
@@ -119,17 +267,27 @@ function taskRow({ repo, autoRoot, logRoot, taskFile, id, archived, mode, live }
     } catch {
       /* no run log yet */
     }
-    // Live process tree size — the "is it really running?" signal. A stale
-    // state file after a reboot shows procs=0 (stale) instead of a live row.
-    const pid = core.readPid(path.join(autoRoot, 'state'), id);
-    const procs = pid ? countTree(pid) : null;
-    let detail = `attempt=${att}`;
-    if (pid) {
-      detail += `; procs=${procs === null ? '?' : procs}`;
-      if (procs === 0) detail += ' (stale)';
+    // Running time in minutes since the run started — friendlier than an ISO ts.
+    let startedMin = null;
+    if (started) {
+      const t = Date.parse(started);
+      if (Number.isFinite(t)) startedMin = Math.max(0, Math.floor((Date.now() - t) / 60000));
     }
-    detail += `; started=${started || '?'}; ${ckpt || 'no-checkpoint'}`;
-    return { state: 'running', detail };
+    // Executor: which AI CLI + model this task consumes (envelope) — the
+    // traffic-allocation signal — plus the branch's commit trail.
+    let agent = 'claude';
+    let model = 'opus';
+    let branch = '';
+    try {
+      const env = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
+      if (env.agent) agent = env.agent;
+      if (env.model) model = env.model;
+      branch = env.branch || '';
+    } catch {
+      /* envelope missing */
+    }
+    const detail = `attempt=${att}; ${agent}/${model}; started=${startedMin === null ? started || '?' : `${startedMin}m`}; ${ckpt || 'no-checkpoint'}`;
+    return { state: 'running', detail, progress: taskProgress({ logRoot, id }), branch };
   }
 
   const rc = reportContent({ repo, autoRoot, taskFile, id });
@@ -209,7 +367,7 @@ function render({ repo, autoRoot, logRoot, mode }) {
       case 'cancelled': canc += 1; break;
     }
     const line = `${COL(id, 34)} ${COL(env.type || '', 6)} ${COL(sched, 14)} ${COL(row.state, 9)} ${row.detail}`;
-    rows.set(id, { sortkey, batch, line });
+    rows.set(id, { sortkey, batch, line, progress: row.progress, branch: row.branch });
     states.set(id, row.state);
     deps.set(id, env.depends_on || []);
   }
@@ -274,6 +432,7 @@ function render({ repo, autoRoot, logRoot, mode }) {
       const row = rows.get(tid);
       if (!row) continue; // manifest lists an id whose envelope isn't on this box
       say(`  ${row.line}`);
+      if (row.progress) sayProgress(row, say);
       if (mode === 'worker') {
         try {
           const nt = fs.readFileSync(path.join(stateDir, `${tid}.notes`), 'utf8').trim().split('\n').slice(-2);
@@ -291,18 +450,28 @@ function render({ repo, autoRoot, logRoot, mode }) {
   const urows = [];
   for (const [id, row] of rows) {
     if (!row.batch || !fs.existsSync(path.join(autoRoot, 'batches', `${row.batch}.json`))) {
-      urows.push({ sortkey: row.sortkey, line: row.line });
+      urows.push({ sortkey: row.sortkey, line: row.line, progress: row.progress, branch: row.branch });
     }
   }
   urows.sort((a, b) => a.sortkey - b.sortkey);
   if (urows.length) {
     if (batchCount > 0) say('(ungrouped)');
-    for (const r of urows) say(r.line);
+    for (const r of urows) {
+      say(r.line);
+      if (r.progress) sayProgress(r, say);
+    }
   }
 
   let summary = `${done} done · ${fail} failed · ${run} running · ${pend} pending · ${arch} archived`;
   if (canc > 0) summary += ` · ${canc} cancelled`;
   if (batchSegs.length) summary += ` · batches: ${batchSegs.join(' · ')}`;
+  if (mode === 'worker') {
+    const tree = processTree(autoRoot, stateDir);
+    if (tree) {
+      say('----');
+      for (const l of tree) say(l);
+    }
+  }
   say('----');
   say(summary);
   return lines.join('\n');
@@ -331,7 +500,7 @@ function selfTest() {
     core.writeState(path.join(tmp, 'state'), 'done-me', 'done');
     put('tasks/run-me.json', JSON.stringify({ id: 'run-me', type: 'dev', schedule: { run_at: piso } }));
     core.writeState(path.join(tmp, 'state'), 'run-me', 'running');
-    core.writePid(path.join(tmp, 'state'), 'run-me', 2147483647); // dead pid → procs=0 (stale)
+    core.writePid(path.join(tmp, 'state'), 'run-me', process.pid); // live (this process) → tree branch
     fs.writeFileSync(path.join(tmp, 'logs', 'run-me', 'run.log'),
       '[t0] start\n[t1] attempt 1: fresh run\n[t2] [[CHECKPOINT step 3/5]]\n', 'utf8');
     put('tasks/archive/arch-me.json', JSON.stringify({ id: 'arch-me', type: 'audit', schedule: { run_at: piso } }));
@@ -373,7 +542,9 @@ function selfTest() {
     check('pending row', out, /pend-me .* pending/);
     check('done row', out, /done-me .* done .*attempts=2/);
     check('running row', out, /run-me .* running .*CHECKPOINT step 3\/5/);
-    check('running row: dead pid shows stale procs', out, /run-me .* running .*procs=0 \(stale\)/);
+    check('running row: executor agent/model', out, /run-me .* running .*claude\/opus/);
+    check_absent('no commit block without worktree', out, /提交 \(/);
+    check('process tree lists live running task', out, /processes:[\s\S]*run run-me \(/);
     check('archived row', out, /arch-me .* done .*ARCHIVED/);
     check('counts line', out, /4 done · 0 failed · 1 running · 3 pending/);
     check('batch header: title + 2/3', out, /== batch p0805 — P0805 flight — 2\/3 done/);
