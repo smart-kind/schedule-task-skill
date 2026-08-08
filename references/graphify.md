@@ -11,21 +11,48 @@ It is **optional** — schedule-task's only hard dependencies are node + git. It
 executor answers code/doc questions with `graphify query` instead of reading source files,
 which the built-in token benchmark measures at roughly **8x fewer tokens** per question.
 
-## Env check & install (per machine — author and worker)
+## Detect-only behavior (the skill never installs it)
 
-`schedule-task init` and `schedule-task doctor` check for the `graphify` binary on PATH and
-print an install hint when it is missing. The check is informational — graphify being absent
-never makes the runtime fail.
+`schedule-task init` and `schedule-task doctor` only **detect** the `graphify` binary on PATH:
 
-Install once per machine. The CLI is agent-agnostic — the same commands work under Kimi Code,
-Claude Code, Codex, etc.:
+- present → reported `ok`; executors will save tokens (the plan-harness template activates the
+  knowledge-graph section).
+- absent → a `warn` row plus the install command is printed, and nothing else happens —
+  graphify being absent never fails the runtime, and the skill never downloads or installs it.
 
-- with uv: `uv tool install graphifyy`
-- with pip: `pip install graphifyy`
+The detection is exactly one check: is `graphify` on PATH? It does **not** check agent skill
+directories, does **not** infer platforms, does **not** clone anything.
 
-Verify: `graphify --help`. Optional richer semantic extraction (docs/papers/images) uses Gemini
-when `GEMINI_API_KEY` / `GOOGLE_API_KEY` is set; without a key the host agent does the semantic
-pass itself — never block on a missing key.
+## Installing it (you do this once per machine, the skill does not)
+
+### The binary
+
+```bash
+uv tool install graphifyy     # or: pip install graphifyy
+```
+
+Verify with `graphify --help`.
+
+### The skill for Kimi Code / Claude Code
+
+`graphify install --platform <p>` supports many agents but **not Kimi Code** (upstream lists
+`kimi` — which targets `~/.kimi/skills/` — but there is no `kimi-code` entry). Kimi Code reads
+skills from `~/.kimi-code/skills/`, a different directory from Kimi's `~/.kimi/skills/`. The
+practical installs:
+
+- **Claude Code**: `graphify install --platform claude` → `~/.claude/skills/graphify/`
+- **Kimi Code**: install the Kimi variant first, then copy it over (both are real user-level
+  copies; no symlinks):
+
+```bash
+graphify install --platform kimi                    # -> ~/.kimi/skills/graphify/ (complete: SKILL.md + references/)
+cp -r ~/.kimi/skills/graphify ~/.kimi-code/skills/graphify
+```
+
+`graphify install` installs a complete skill for progressive platforms (SKILL.md + the
+`references/` sidecar + a `.graphify_version` stamp), so copying the Kimi install gives Kimi
+Code the same complete copy. Alternatively, clone the upstream repo (the repo root IS the
+skill) and copy it into `~/.kimi-code/skills/graphify/`.
 
 ## Refresh before task work
 
@@ -54,7 +81,8 @@ Ignore the regenerable / machine-local files (already covered by the repo `.giti
 
 - `graph.html` — large, regenerable snapshot; paths are relative to the machine that built it,
   so regenerate per machine
-- `cost.json`, `.graphify_*` temp files — per-run accounting / local state
+- `cost.json`, `.graphify_*` temp files, dated `graphify-out/20xx-xx-xx/` backups — per-run
+  accounting / local state
 
 `graph.html` is the one thing to regenerate on each machine (it embeds repo-relative paths):
 `graphify export html`, or `graphify cluster-only .` to rebuild everything from an existing

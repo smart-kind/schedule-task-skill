@@ -69,8 +69,8 @@ Commands:
   doctor
       Environment check: node/git/claude/kimi/graphify, machine identity, data dirs.
   update
-      Pull the latest source of this skill installation (git pull in the repo
-      the CLI ships from).
+      Refresh this skill installation (git pull from a source checkout; or
+      print the ./install.sh --update hint when npm-installed).
   self-test
       Run the full node:test suite (same as \`npm test\`).
 
@@ -211,13 +211,14 @@ async function main(argv) {
     }
     case 'update': {
       const root = core.skillRoot();
-      if (!fs.existsSync(path.join(root, '.git'))) {
-        console.error(`update: ${root} is not a git repo; nothing to pull`);
-        return 1;
+      if (fs.existsSync(path.join(root, '.git'))) {
+        console.log(`update: pulling latest skill source in ${root}`);
+        const r = spawnSync('git', ['pull', 'origin', 'main'], { cwd: root, stdio: 'inherit' });
+        return r.status === 0 ? 0 : 1;
       }
-      console.log(`update: pulling latest skill source in ${root}`);
-      const r = spawnSync('git', ['pull', 'origin', 'main'], { cwd: root, stdio: 'inherit' });
-      return r.status === 0 ? 0 : 1;
+      // npm global install (install.sh): no .git here — re-copy + reinstall.
+      console.log('update: npm-installed CLI — refresh with: ./install.sh --update (in the skill source repo)');
+      return 0;
     }
     case 'self-test': {
       const root = core.skillRoot();

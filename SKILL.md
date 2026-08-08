@@ -23,11 +23,16 @@ agent.
 
 ## Prerequisite
 
-The current repo must contain the runtime **data directory** `.schedule-tasks-data/`
-(`{tasks,prompts,reports,batches,state}/` + `hooks/notify.sh`). The runtime is the
-**`schedule-task` CLI** (one Node binary, no other dependencies — the bash/jq/tmux era is gone).
-If `.schedule-tasks-data/` is missing in the repo you're working in, run `schedule-task init`
-first (below) — it creates the data dirs and the worker-local state configuration.
+Install the runtime once per machine: `./install.sh` in the skill source directory — it
+**copies** the skill into every agent's skill dir (`~/.agents`, `~/.claude`, `~/.kimi-code`;
+plain copies, no symlinks) and runs `npm install -g` for the global `schedule-task` command.
+The runtime is the **`schedule-task` CLI** (one Node binary, no other dependencies — the
+bash/jq/tmux era is gone).
+
+The repo you schedule work in must contain the runtime **data directory** `.schedule-tasks-data/`
+(`{tasks,prompts,reports,batches,state}/` + `hooks/notify.sh`). If it is missing in the repo
+you're working in, run `schedule-task init` first (below) — it creates the data dirs and the
+worker-local state configuration.
 
 ## Sub-commands (one CLI, route on the first argument)
 
@@ -79,10 +84,10 @@ first (below) — it creates the data dirs and the worker-local state configurat
      the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
-- **`update`** — update the skill installation itself: pulls the latest source in the repo the
-  CLI ships from. (The installer is `./install.sh --update` in the skill source directory — it
-  pulls and refreshes the `~/.agents` / `~/.claude` / `~/.kimi-code` symlinks plus the
-  `~/.local/bin/schedule-task` link.)
+- **`update`** — refresh the skill installation: when the CLI runs from a git checkout it
+  pulls the latest source; when npm-installed it prints how to refresh (`./install.sh --update`
+  in the skill source directory — re-copies the skill into `~/.agents` / `~/.claude` /
+  `~/.kimi-code` and re-runs `npm install -g`).
 
 - **`archive <id>`** — retire finished tasks: moves the envelope + prompt pair into
   `.schedule-tasks-data/{tasks,prompts}/archive/` — kept in git as a faithful record — and
@@ -243,11 +248,11 @@ Then remind the user:
   (pid lock files). `claude`/`kimi` are needed on the worker. `schedule-task doctor` checks all
   of this.
 - **graphify (optional)** — knowledge-graph queries for executors (`graphify query` /
-  `graphify update`), ~8x cheaper than reading source files. `init`/`doctor` check for it and
-  print the install hint when missing; the plan-harness template tells executors to refresh and
-  query it. Install once per machine (agent-agnostic — works under Kimi Code / Claude Code):
-  `uv tool install graphifyy`. Commit policy for `graphify-out/` and usage details:
-  `references/graphify.md`.
+  `graphify update`), ~8x cheaper than reading source files. `init`/`doctor` only **detect** the
+  `graphify` binary: present → executors can save tokens; absent → a warning prints the install
+  command (`uv tool install graphifyy`) — the skill never installs it itself. The plan-harness
+  template tells executors to refresh and query it when present. Install rules (binary + the
+  Kimi Code skill copy) and the `graphify-out/` commit policy: `references/graphify.md`.
 - Executor CLIs (`claude` / `kimi`) can be pinned with `CLAUDE_BIN` / `KIMI_BIN`; the tuning
   seams `LIMIT_MARGIN`, `LIMIT_FALLBACK`, `MAX_AMBIGUOUS`, `AMBIGUOUS_SLEEP`,
   `AMBIGUOUS_FRESH_AT`, `FL_MAX_CONCURRENCY`, `FL_INBOX` are all environment variables.
@@ -260,5 +265,6 @@ Then remind the user:
   router (agents.js).
 - `references/operations.md` — operating a live system: logs, watching with `log -f`,
   stuck-task recovery, notify hooks.
-- `references/graphify.md` — the optional knowledge-graph integration: install rules,
-  refresh-before-work convention, `graphify-out/` commit policy.
+- `references/graphify.md` — the optional knowledge-graph integration: detect-only behavior,
+  install command (binary + the Kimi Code skill copy), refresh-before-work convention,
+  `graphify-out/` commit policy.

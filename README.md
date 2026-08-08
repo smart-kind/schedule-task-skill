@@ -45,35 +45,48 @@ requirements are **node ≥ 18** and **git**; the old bash/jq/GNU-date/tmux/floc
 
 ```bash
 schedule-task --help            # every command
-schedule-task doctor            # env health check (node/git/claude/kimi)
+schedule-task doctor            # env health check (node/git/claude/kimi/graphify)
 schedule-task self-test         # run the node:test suite
 ```
 
 ## Install
 
+**Option A — clone then install** (recommended if you want to read the source):
+
 ```bash
-git clone <this-repo-url> ~/agent-skills/schedule-task   # or anywhere
-cd ~/agent-skills/schedule-task
-./install.sh              # add --dry-run to preview
+git clone https://github.com/smart-kind/schedule-task-skill ~/schedule-task
+cd ~/schedule-task
+./install.sh            # add --dry-run to preview, --yes to skip prompts
 ```
 
-`install.sh` does two things:
+**Option B — one curl command** (public repo; the script clones itself):
 
-1. Symlinks the repo into every agent-skills directory whose parent exists:
-   `~/.agents/skills/schedule-task`, `~/.claude/skills/schedule-task`,
-   `~/.kimi-code/skills/schedule-task`. Existing entries are left alone (reported as SKIP).
-2. Links the CLI at `~/.local/bin/schedule-task` → `bin/schedule-task.js` — no npm needed.
+```bash
+curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash
+```
 
-Alternatives: `npm link` / `npm install -g .` (global command), or `npx schedule-task` if the
-package is ever published. To update later, run `./install.sh --update` (pulls + relinks).
+`install.sh` asks which agent platform(s) to install the skill into
+(`kimi-code` / `claude` / `agents` — or skip the prompt with
+`--platform=kimi-code,claude` / `--yes`), then:
+
+1. **Copies** the skill into each chosen platform's skills dir — a plain user-level copy,
+   **no symlinks** (self-contained: the same layout works on macOS and a VPS):
+   `~/.kimi-code/skills/schedule-task`, `~/.claude/skills/schedule-task`,
+   `~/.agents/skills/schedule-task`. `.git` and `graphify-out/` are stripped from each copy.
+2. **`npm install -g`** the repo — the global command becomes `schedule-task`.
+
+**Update later:** run `./install.sh --update` in a source checkout, or re-run the curl line —
+it refreshes the source, re-copies the skill dirs, and re-installs the npm global. Old symlink
+installs from the previous version are detected and converted to copies automatically.
 
 ### Per-tool notes
 
-- **Kimi Code** and **Codex** natively scan `.agents/skills/` (user-level `~/.agents/skills/` +
-  project-level) — the `~/.agents` symlink is enough. (Verified: Kimi reads `~/.agents/skills`.)
-- **Claude Code** does not read `.agents/skills/` — it only loads `.claude/skills/`, so the
-  `~/.claude/skills` symlink is required for it.
-- One repo on disk, one source of truth, three entry points.
+- **Kimi Code** and **Codex** natively scan `~/.agents/skills/` (user-level) — pick `agents`
+  when asked (or `kimi-code`, Kimi Code's own dir).
+- **Claude Code** does not read `.agents/skills/` — it only loads `~/.claude/skills/`, so pick
+  `claude` for it.
+- You can install into several platforms on the same machine; each gets its own independent
+  copy (no shared links, so nothing breaks when paths differ across machines).
 
 ## Quickstart
 
@@ -116,7 +129,7 @@ schedule-task/
 ├── SKILL.md                  # the skill: create (default) / status / init / archive / cancel / merge-batch / log / doctor
 ├── README.md                 # this file
 ├── package.json              # zero runtime deps; bin → bin/schedule-task.js; npm test
-├── install.sh                # skill-dir symlinks + ~/.local/bin/schedule-task link
+├── install.sh                # installs skill copies (no symlinks) + npm global CLI
 ├── bin/schedule-task.js      # CLI launcher (shebang; everything is in src/)
 ├── src/                      # the whole runtime — one module per concern
 │   ├── cli.js                # command table + arg parsing + help
