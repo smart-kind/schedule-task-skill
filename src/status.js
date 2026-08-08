@@ -69,6 +69,38 @@ function reltime(t, now) {
   return d >= 0 ? `in ${u}` : `${u} ago`;
 }
 
+// Best-effort count of live processes in the tree rooted at pid (the runner,
+// its executor CLI, and any tools the CLI spawned). Returns 0 for a missing or
+// dead pid, null when the platform cannot count (no /proc and no `ps`).
+function countTree(pid) {
+  if (!pid) return null;
+  if (!core.isAlive(pid)) return 0;
+  let n = 1;
+  let children = [];
+  try {
+    // Linux: /proc/<pid>/task/<pid>/children lists direct children without
+    // spawning a process. Nothing to read for a zombie the kernel keeps around
+    // but already dead — /proc/task disappears when the process exits.
+    const kids = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim();
+    if (kids) children = kids.split(/\s+/).map(Number).filter(Boolean);
+  } catch {
+    // Fallback: `ps --ppid` on systems without /proc.
+    try {
+      const { execFileSync } = require('node:child_process');
+      const out = execFileSync('ps', ['-o', 'pid=', '--ppid', String(pid)], { encoding: 'utf8' });
+      children = out.split('\n').map((l) => Number(l.trim())).filter(Boolean);
+    } catch {
+      return null; // cannot count — caller omits the field
+    }
+  }
+  for (const c of children) {
+    const sub = countTree(c);
+    if (sub === null) return null;
+    n += sub;
+  }
+  return n;
+}
+
 // Compute "state<TAB>detail" for one task file, honouring the current mode.
 function taskRow({ repo, autoRoot, logRoot, taskFile, id, archived, mode, live }) {
   if (mode === 'worker' && live === 'running') {
@@ -87,7 +119,16 @@ function taskRow({ repo, autoRoot, logRoot, taskFile, id, archived, mode, live }
     } catch {
       /* no run log yet */
     }
-    const detail = `attempt=${att}; started=${started || '?'}; ${ckpt || 'no-checkpoint'}`;
+    // Live process tree size — the "is it really running?" signal. A stale
+    // state file after a reboot shows procs=0 (stale) instead of a live row.
+    const pid = core.readPid(path.join(autoRoot, 'state'), id);
+    const procs = pid ? countTree(pid) : null;
+    let detail = `attempt=${att}`;
+    if (pid) {
+      detail += `; procs=${procs === null ? '?' : procs}`;
+      if (procs === 0) detail += ' (stale)';
+    }
+    detail += `; started=${started || '?'}; ${ckpt || 'no-checkpoint'}`;
     return { state: 'running', detail };
   }
 
@@ -290,6 +331,7 @@ function selfTest() {
     core.writeState(path.join(tmp, 'state'), 'done-me', 'done');
     put('tasks/run-me.json', JSON.stringify({ id: 'run-me', type: 'dev', schedule: { run_at: piso } }));
     core.writeState(path.join(tmp, 'state'), 'run-me', 'running');
+    core.writePid(path.join(tmp, 'state'), 'run-me', 2147483647); // dead pid → procs=0 (stale)
     fs.writeFileSync(path.join(tmp, 'logs', 'run-me', 'run.log'),
       '[t0] start\n[t1] attempt 1: fresh run\n[t2] [[CHECKPOINT step 3/5]]\n', 'utf8');
     put('tasks/archive/arch-me.json', JSON.stringify({ id: 'arch-me', type: 'audit', schedule: { run_at: piso } }));
@@ -331,6 +373,7 @@ function selfTest() {
     check('pending row', out, /pend-me .* pending/);
     check('done row', out, /done-me .* done .*attempts=2/);
     check('running row', out, /run-me .* running .*CHECKPOINT step 3\/5/);
+    check('running row: dead pid shows stale procs', out, /run-me .* running .*procs=0 \(stale\)/);
     check('archived row', out, /arch-me .* done .*ARCHIVED/);
     check('counts line', out, /4 done · 0 failed · 1 running · 3 pending/);
     check('batch header: title + 2/3', out, /== batch p0805 — P0805 flight — 2\/3 done/);
