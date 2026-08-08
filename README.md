@@ -59,15 +59,32 @@ cd ~/schedule-task
 ./install.sh            # add --dry-run to preview, --yes to skip prompts
 ```
 
-**Option B — one curl command** (public repo; the script clones itself):
+**Option B — let an AI agent install it for you.** In your agent (Kimi Code, Claude Code,
+Codex, …), say:
+
+> Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions.
+
+The agent reads this README, fetches `install.sh`, decides which platform it is running on
+itself, and runs the script with the matching `--platform` flag — no interactive answers and
+no need for you to say what you are on. A human at a terminal instead uses the pipe form in
+Option C.
+
+**Option C — manual install, one curl command** (public repo; the script clones itself):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash
 ```
 
-`install.sh` asks which agent platform(s) to install the skill into
-(`kimi-code` / `claude` / `agents` — or skip the prompt with
-`--platform=kimi-code,claude` / `--yes`), then:
+### install.sh flags
+
+| Flag | Meaning |
+|---|---|
+| `--platform=kimi-code,claude,agents` (or `all`) | Which agent platform(s) to install the skill into. For unattended/AI installs pass exactly the platform the script runs under — no prompts. |
+| `--yes` | Skip all prompts (installs into every detected platform when `--platform` is absent). |
+| `--dry-run` | Print what would happen without changing anything. |
+| `--update` | Refresh the source, re-copy the skill dirs, re-run the npm install. |
+
+With no flags and a terminal, `install.sh` asks which platform(s) to use. Then it:
 
 1. **Copies** the skill into each chosen platform's skills dir — a plain user-level copy,
    **no symlinks** (self-contained: the same layout works on macOS and a VPS):
