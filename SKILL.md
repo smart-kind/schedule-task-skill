@@ -65,7 +65,9 @@ first (below) — it creates the data dirs and the worker-local state configurat
      that are missing.
   5. Check dependencies on PATH: `node` (running), `git`, and at least one of `claude` / `kimi`.
      Report what's missing; don't fail hard — the deps matter on the *worker*, not necessarily
-     on the author's machine.
+     on the author's machine. Also checks `graphify` (optional — knowledge-graph queries for
+     executors; install once per machine with `uv tool install graphifyy`, see
+     `references/graphify.md`).
   6. Only for a `worker` role, print the exact watchdog command for that worker box. Replace
      `<repo>` with the absolute path of the repo **on the worker**:
      ```
@@ -119,8 +121,8 @@ first (below) — it creates the data dirs and the worker-local state configurat
   shows whether it is alive and what the last check did. Only machines with `role=worker`
   launch anything; the watchdog NEVER merges. Run these on the worker box.
 
-- **`doctor`** — environment health check: node/git/claude/kimi presence, machine identity,
-  data-dir completeness.
+- **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, machine
+  identity, data-dir completeness.
 
 - **anything else / no argument** → the create flow below.
 
@@ -240,6 +242,12 @@ Then remind the user:
   program: no jq (JSON.parse), no GNU date (Date), no tmux (detached process groups), no flock
   (pid lock files). `claude`/`kimi` are needed on the worker. `schedule-task doctor` checks all
   of this.
+- **graphify (optional)** — knowledge-graph queries for executors (`graphify query` /
+  `graphify update`), ~8x cheaper than reading source files. `init`/`doctor` check for it and
+  print the install hint when missing; the plan-harness template tells executors to refresh and
+  query it. Install once per machine (agent-agnostic — works under Kimi Code / Claude Code):
+  `uv tool install graphifyy`. Commit policy for `graphify-out/` and usage details:
+  `references/graphify.md`.
 - Executor CLIs (`claude` / `kimi`) can be pinned with `CLAUDE_BIN` / `KIMI_BIN`; the tuning
   seams `LIMIT_MARGIN`, `LIMIT_FALLBACK`, `MAX_AMBIGUOUS`, `AMBIGUOUS_SLEEP`,
   `AMBIGUOUS_FRESH_AT`, `FL_MAX_CONCURRENCY`, `FL_INBOX` are all environment variables.
@@ -252,3 +260,5 @@ Then remind the user:
   router (agents.js).
 - `references/operations.md` — operating a live system: logs, watching with `log -f`,
   stuck-task recovery, notify hooks.
+- `references/graphify.md` — the optional knowledge-graph integration: install rules,
+  refresh-before-work convention, `graphify-out/` commit policy.

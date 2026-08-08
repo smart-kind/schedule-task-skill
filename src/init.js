@@ -85,11 +85,17 @@ function depCheck() {
   results.push(['claude', claude ? 'found' : 'not on PATH', claude ? 'ok' : 'warn']);
   const kimi = findInPath('kimi');
   results.push(['kimi', kimi ? 'found' : 'not on PATH', kimi ? 'ok' : 'warn']);
+  const graphify = findInPath('graphify');
+  results.push(['graphify', graphify ? 'found' : 'not on PATH (optional)', graphify ? 'ok' : 'warn']);
   console.log('dependencies:');
   for (const [name, found, status] of results) {
     console.log(`  ${name.padEnd(8)} ${found}  ${status}`);
   }
-  const missing = results.filter((r) => r[2] !== 'ok');
+  if (!graphify) {
+    console.log('  hint: graphify is optional — knowledge-graph queries for executors (saves tokens);');
+    console.log('        install once per machine with: uv tool install graphifyy');
+  }
+  const missing = results.filter((r) => r[2] !== 'ok' && r[0] !== 'graphify');
   if (missing.length) {
     console.log('note: not all deps are present — they matter on the worker, not necessarily on the author machine.');
   }

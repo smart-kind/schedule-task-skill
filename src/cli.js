@@ -67,7 +67,7 @@ Commands:
   log <id> [-f]
       Tail a task's run log (replaces the old tmux attach).
   doctor
-      Environment check: node/git/claude/kimi, machine identity, data dirs.
+      Environment check: node/git/claude/kimi/graphify, machine identity, data dirs.
   update
       Pull the latest source of this skill installation (git pull in the repo
       the CLI ships from).

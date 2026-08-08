@@ -1,2 +1,11 @@
 .DS_Store
 node_modules/
+# graphify knowledge-graph artifacts (schedule-task integration) —
+# commit the core (graph.json / GRAPH_REPORT.md / manifest.json / cache/),
+# ignore regenerable HTML + machine-local temp files
+graphify-out/graph.html
+graphify-out/cost.json
+graphify-out/.graphify_*
+# dated curated-graph backups from `graphify update` (git already versions graph.json)
+graphify-out/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+

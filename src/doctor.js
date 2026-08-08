@@ -21,6 +21,9 @@ function doctor({ repo }) {
   row('git', findInPath('git') || 'not on PATH', Boolean(findInPath('git')));
   row('claude', findInPath('claude') || 'not on PATH', Boolean(findInPath('claude')));
   row('kimi', findInPath('kimi') || 'not on PATH', Boolean(findInPath('kimi')));
+  const graphify = findInPath('graphify');
+  row('graphify', graphify || 'not on PATH (optional)', true);
+  if (!graphify) console.log('  hint: graphify — knowledge-graph queries for executors (saves tokens); install: uv tool install graphifyy');
 
   const dataRoot = core.dataDir(repo);
   const stateDir = core.stateDir(repo);
