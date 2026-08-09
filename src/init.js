@@ -248,12 +248,13 @@ async function init({ repo, roleArg, idArg, yes }) {
 
   // 6. Worker watchdog.
   if (role === 'worker') {
+    const cli = path.join(core.skillRoot(), 'bin', 'schedule-task.js');
     console.log('');
     console.log('启动这台机器的看门狗（常驻进程，每 5 分钟自动检查一次任务，无需 cron）：');
     console.log('');
-    console.log(`schedule-task watchdog start --repo ${repo}`);
+    console.log(`node ${cli} watchdog start --repo ${repo}`);
     console.log('');
-    console.log('  · 查看状态 / 停止：schedule-task watchdog status | stop');
+    console.log(`  · 查看状态 / 停止：node ${cli} watchdog status | stop`);
     console.log('  · 检查间隔默认 300 秒，可用 --interval <秒> 调整');
     console.log('  · 机器重启后需要重新 start（或把上面这行加入登录启动项）');
     console.log('');

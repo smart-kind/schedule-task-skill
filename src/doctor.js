@@ -25,6 +25,16 @@ function doctor({ repo }) {
   row('graphify', graphify || 'not on PATH (optional)', true);
   if (!graphify) console.log('  hint: graphify — knowledge-graph queries for executors (saves tokens); install: uv tool install graphifyy');
 
+  // The skill copy the CLI ships from must be complete (bin + src). There is no
+  // global install anymore — the copy itself is the whole runtime.
+  const skillRoot = core.skillRoot();
+  console.log(`skill-root  ${skillRoot}`);
+  const hasBin = fs.existsSync(path.join(skillRoot, 'bin', 'schedule-task.js'));
+  const hasSrc = fs.existsSync(path.join(skillRoot, 'src'));
+  row('skill bin/', hasBin ? 'present' : 'MISSING', hasBin);
+  row('skill src/', hasSrc ? 'present' : 'MISSING', hasSrc);
+  if (!hasBin || !hasSrc) console.log('  hint: this skill copy is incomplete — re-run ./install.sh (or ./install.sh --update) to restore it');
+
   const dataRoot = core.dataDir(repo);
   const stateDir = core.stateDir(repo);
   if (fs.existsSync(dataRoot)) {

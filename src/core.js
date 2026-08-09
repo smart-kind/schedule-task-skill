@@ -56,8 +56,9 @@ function logRoot(repo, config) {
   return base;
 }
 
-// The directory the CLI itself ships from (skill repo root). Resolved through
-// symlinks (install.sh links ~/.local/bin/schedule-task or the skill dirs).
+// The directory the CLI itself ships from (skill repo root). The installed
+// copies are self-contained (no symlinks, no global install); realpath just
+// resolves the copy's own path (and the dev checkout when run from there).
 function skillRoot() {
   return fs.realpathSync(path.join(__dirname, '..'));
 }

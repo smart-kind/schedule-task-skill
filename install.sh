@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — install the schedule-task skill + CLI. Works two ways:
+# install.sh — install the schedule-task skill as self-contained copies. Works two ways:
 #   A. From a clone:     git clone <repo> && cd <repo> && ./install.sh
 #   B. From a URL (public repo): curl -fsSL <raw install.sh URL> | bash
 #
@@ -10,8 +10,10 @@
 #      (kimi-code / claude / agents), or take --platform / --yes.
 #   3. Copy the skill into each chosen platform's skills dir as a REAL copy
 #      (no symlinks — self-contained, same layout on macOS and a VPS), then
-#      delete .git and graphify-out from the copy.
-#   4. npm install -g the repo — the global command becomes `schedule-task`.
+#      delete .git and graphify-out from the copy and stamp .installed-from.
+#
+# There is NO global install (no `npm install -g`): the copy's own
+# bin/schedule-task.js is the whole CLI — run it with `node <copy>/bin/schedule-task.js`.
 #
 # Non-interactive: --platform=kimi-code,claude,agents (or all) and/or --yes.
 # Idempotent: existing copies are SKIPped unless --update replaces them.
@@ -89,14 +91,16 @@ copy_skill() {
       skipped=$((skipped + 1))
     fi
   elif [ -L "$dest" ]; then
-    # Old symlink-era install (no marker): convert to a copy on --update.
+    # Old global-install-era symlink leftover (no marker): never convert
+    # silently. Plain installs only warn; --update is the fix path (replaces
+    # the symlink with a fresh copy), or delete it by hand and reinstall.
     if [ "$UPDATE" -eq 1 ]; then
-      echo "REPLACE $dest (old symlink -> $(readlink "$dest" 2>/dev/null || echo '?'); converting to a copy)"
+      echo "REPLACE $dest (old-scheme symlink -> $(readlink "$dest" 2>/dev/null || echo '?') — replacing with a fresh copy)"
       run rm "$dest"
       copy_skill_into "$dest"
       replaced=$((replaced + 1))
     else
-      echo "SKIP    $dest is an old symlink (use --update to convert to a copy)"
+      echo "NOTE    $dest is an old-scheme symlink (旧方案) — use --update, or delete it manually and reinstall"
       skipped=$((skipped + 1))
     fi
   elif [ -e "$dest" ]; then
@@ -156,7 +160,7 @@ elif [ "$YES" -eq 0 ] && [ -t 0 ]; then
 fi
 
 if [ "$SELECT" = "none" ] || [ -z "$SELECT" ]; then
-  echo "no skill copy requested — only the CLI will be installed."
+  echo "no skill copy requested — nothing to install (the CLI ships inside the skill copy)."
 fi
 
 IFS=',' read -r -a SELECTED <<< "$SELECT"
@@ -169,22 +173,10 @@ for name in "${SELECTED[@]}"; do
   esac
 done
 
-# --- CLI: global npm install -> the `schedule-task` command ---
-# Drop a stale symlink from the old installer so the npm global command wins.
-OLD_CLI_LINK="$HOME/.local/bin/schedule-task"
-if [ -L "$OLD_CLI_LINK" ] && [ "$(readlink "$OLD_CLI_LINK" 2>/dev/null || true)" = "$REPO_ROOT/bin/schedule-task.js" ]; then
-  echo "removing old CLI symlink ($OLD_CLI_LINK — the npm global command takes over)"
-  run rm "$OLD_CLI_LINK"
-fi
-if command -v schedule-task >/dev/null 2>&1 && [ "$UPDATE" -eq 0 ]; then
-  echo "SKIP    schedule-task already on PATH at $(command -v schedule-task) (use --update to reinstall)"
-  skipped=$((skipped + 1))
-else
-  echo "CLI: npm install -g (global command: schedule-task)"
-  run npm install -g "$REPO_ROOT"
-fi
-
 echo "----"
 echo "install.sh: $copied copied, $replaced replaced, $skipped skipped, $absent parent(s) absent$([ "$DRY_RUN" -eq 1 ] && echo ' (dry-run — nothing changed)')"
-echo "The CLI is installed globally as \`schedule-task\` (npm install -g)."
-echo "Re-run with --update to refresh the skill copies and the global install."
+echo "The skill is self-contained: the CLI is inside each copy at bin/schedule-task.js."
+echo "Run it as:  node <skills-dir>/schedule-task/bin/schedule-task.js <subcommand>"
+echo "There is no global install — nothing else is installed or needed."
+echo "To update later, re-run ./install.sh --update (or the curl one-liner) after a new release."
+echo "Old-scheme leftovers (npm global \`schedule-task\`, ~/.local/bin/schedule-task symlink) are unused now — remove them by hand at your convenience."

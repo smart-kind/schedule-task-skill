@@ -69,10 +69,13 @@ Commands:
   doctor
       Environment check: node/git/claude/kimi/graphify, machine identity, data dirs.
   update
-      Refresh this skill installation (git pull from a source checkout; or
-      print the ./install.sh --update hint when npm-installed).
+      Print how to refresh the skill installation (installed copies are
+      self-contained; update = re-run ./install.sh --update).
   self-test
       Run the full node:test suite (same as \`npm test\`).
+  version
+      Print this skill copy's version (from package.json next to this CLI) —
+      handy for telling leftover installs apart.
 
 Global options:
   -r, --repo <path>   repo to operate on (default: current directory)
@@ -101,7 +104,7 @@ async function main(argv) {
   }
   const { command, repo: cliRepo, args, flags } = parsed;
 
-  if (flags['--version']) {
+  if (flags['--version'] || command === 'version') {
     const pkg = JSON.parse(fs.readFileSync(path.join(core.skillRoot(), 'package.json'), 'utf8'));
     console.log(pkg.version);
     return 0;
@@ -210,14 +213,11 @@ async function main(argv) {
       return doctor({ repo });
     }
     case 'update': {
-      const root = core.skillRoot();
-      if (fs.existsSync(path.join(root, '.git'))) {
-        console.log(`update: pulling latest skill source in ${root}`);
-        const r = spawnSync('git', ['pull', 'origin', 'main'], { cwd: root, stdio: 'inherit' });
-        return r.status === 0 ? 0 : 1;
-      }
-      // npm global install (install.sh): no .git here — re-copy + reinstall.
-      console.log('update: npm-installed CLI — refresh with: ./install.sh --update (in the skill source repo)');
+      // Installed copies are self-contained (no .git, no npm global install):
+      // the only update path is re-copying the latest source via install.sh.
+      console.log('update: this skill is a self-contained copy — refresh it with:');
+      console.log('  ./install.sh --update   (in the skill source repo), or re-run the install');
+      console.log('  (curl one-liner / plain ./install.sh). Installed copies are replaced in place.');
       return 0;
     }
     case 'self-test': {

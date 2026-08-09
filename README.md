@@ -38,20 +38,34 @@ execute, the author merges finished batches (dependency-ordered, PR optional).
 
 ## Runtime: one CLI, two dependencies
 
-The whole runtime is **`schedule-task`** — a single zero-dependency Node CLI. The only hard
-requirements are **node ≥ 18** and **git**; the old bash/jq/GNU-date/tmux/flock stack is gone.
-`jq` is JSON.parse, GNU date is `Date`, tmux sessions are detached process groups (killed via
-`kill(-pgid)`), flock is a pid lock file.
+The whole runtime is the **`schedule-task` CLI** — a single zero-dependency Node program. The
+only hard requirements are **node ≥ 18** and **git**; the old bash/jq/GNU-date/tmux/flock stack
+is gone. `jq` is JSON.parse, GNU date is `Date`, tmux sessions are detached process groups
+(killed via `kill(-pgid)`), flock is a pid lock file.
+
+The CLI ships **inside the skill itself — there is no global install.** In the installed copy
+(or the source checkout) it lives at `bin/schedule-task.js`:
 
 ```bash
-schedule-task --help            # every command
-schedule-task doctor            # env health check (node/git/claude/kimi/graphify)
-schedule-task self-test         # run the node:test suite
+node <skill-dir>/bin/schedule-task.js --help      # every command
+node <skill-dir>/bin/schedule-task.js doctor      # env health check (node/git/claude/kimi/graphify)
+node <skill-dir>/bin/schedule-task.js self-test   # run the node:test suite
+node <skill-dir>/bin/schedule-task.js version     # this copy's version (run per copy to tell leftovers apart)
 ```
+
+`<skill-dir>` is the directory that contains `SKILL.md` — e.g. `~/.agents/skills/schedule-task`.
+Throughout the rest of this README, `schedule-task <cmd>` is shorthand for
+`node <skill-dir>/bin/schedule-task.js <cmd>`.
 
 ## Install
 
-**Option A — clone then install** (recommended if you want to read the source):
+Pick your install path:
+
+- **At a terminal and want to read the source** → **Option A**
+- **Want an AI agent to install it for you** → **Option B** (send your agent this exact prompt: `Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions.`)
+- **At a terminal, one-liner only** → **Option C**
+
+**Option A — clone then install** (if you want to read the source):
 
 ```bash
 git clone https://github.com/smart-kind/schedule-task-skill ~/schedule-task
@@ -64,10 +78,10 @@ Codex, …), say:
 
 > Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions.
 
-The agent reads this README, fetches `install.sh`, decides which platform it is running on
-itself, and runs the script with the matching `--platform` flag — no interactive answers and
-no need for you to say what you are on. A human at a terminal instead uses the pipe form in
-Option C.
+When your agent receives the prompt above, it automatically reads this README, fetches
+`install.sh`, detects its own platform, and runs it with the matching `--platform` flag —
+no clone, no inspection, no interactive answers, and no need for you to say what you are
+on. A human at a terminal instead uses the pipe form in Option C.
 
 **Option C — manual install, one curl command** (public repo; the script clones itself):
 
@@ -82,19 +96,23 @@ curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main
 | `--platform=kimi-code,claude,agents` (or `all`) | Which agent platform(s) to install the skill into. For unattended/AI installs pass exactly the platform the script runs under — no prompts. |
 | `--yes` | Skip all prompts (installs into every detected platform when `--platform` is absent). |
 | `--dry-run` | Print what would happen without changing anything. |
-| `--update` | Refresh the source, re-copy the skill dirs, re-run the npm install. |
+| `--update` | Refresh the source, re-copy the skill dirs (replacing installed copies in place). |
 
 With no flags and a terminal, `install.sh` asks which platform(s) to use. Then it:
 
 1. **Copies** the skill into each chosen platform's skills dir — a plain user-level copy,
-   **no symlinks** (self-contained: the same layout works on macOS and a VPS):
-   `~/.kimi-code/skills/schedule-task`, `~/.claude/skills/schedule-task`,
-   `~/.agents/skills/schedule-task`. `.git` and `graphify-out/` are stripped from each copy.
-2. **`npm install -g`** the repo — the global command becomes `schedule-task`.
+   **no symlinks, no global install** (self-contained: the same layout works on macOS and a
+   VPS): `~/.kimi-code/skills/schedule-task`, `~/.claude/skills/schedule-task`,
+   `~/.agents/skills/schedule-task`. `.git` and `graphify-out/` are stripped from each copy,
+   and a `.installed-from` marker records the source.
+2. Prints how to run the CLI from each copy — `node <skill-dir>/bin/schedule-task.js <cmd>`.
+   There is nothing else to install.
 
-**Update later:** run `./install.sh --update` in a source checkout, or re-run the curl line —
-it refreshes the source, re-copies the skill dirs, and re-installs the npm global. Old symlink
-installs from the previous version are detected and converted to copies automatically.
+**Update later:** edit the skill source repo, commit and release, then run
+`./install.sh --update` in a source checkout (or re-run the curl line) on each machine — it
+refreshes the source and re-copies the skill dirs in place. Old symlink installs from the
+previous version are never silently converted: install prints a hint (`use --update`, or delete
+the symlink by hand and reinstall).
 
 ### Per-tool notes
 
@@ -143,10 +161,10 @@ installs from the previous version are detected and converted to copies automati
 
 ```
 schedule-task/
-├── SKILL.md                  # the skill: create (default) / status / init / archive / cancel / merge-batch / log / doctor
+├── SKILL.md                  # the skill: create (default) / status / init / archive / cancel / merge-batch / log / doctor / version
 ├── README.md                 # this file
 ├── package.json              # zero runtime deps; bin → bin/schedule-task.js; npm test
-├── install.sh                # installs skill copies (no symlinks) + npm global CLI
+├── install.sh                # installs self-contained skill copies (no symlinks, no global CLI)
 ├── bin/schedule-task.js      # CLI launcher (shebang; everything is in src/)
 ├── src/                      # the whole runtime — one module per concern
 │   ├── cli.js                # command table + arg parsing + help

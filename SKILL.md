@@ -13,7 +13,7 @@ repo's inbox branch (default `dev`) where the watchdogs pick them up. Never a on
 
 **Roles are fixed and never blur.** The *author* box owns the whole lifecycle: it initializes the
 repo, drafts tasks (assigning each to a worker + branch + time), and — when all workers are done
-— merges the results (`schedule-task merge-batch <batch>`, PR optional). A *worker* box only
+— merges the results (`node <skill-dir>/bin/schedule-task.js merge-batch <batch>`, PR optional). A *worker* box only
 executes: its always-on watchdog launches tasks whose envelope `.worker` matches its machine id, and
 pushes results back on per-task branches. **Workers never merge.**
 
@@ -23,27 +23,33 @@ agent.
 
 ## Prerequisite
 
-Install the runtime once per machine: `./install.sh` in the skill source directory — it
-**copies** the skill into every agent's skill dir (`~/.agents`, `~/.claude`, `~/.kimi-code`;
-plain copies, no symlinks) and runs `npm install -g` for the global `schedule-task` command.
-The runtime is the **`schedule-task` CLI** (one Node binary, no other dependencies — the
-bash/jq/tmux era is gone).
+Install the runtime once per machine: run `./install.sh` in the skill source
+directory, or simply copy this skill directory into an agent's skills dir
+(`~/.agents`, `~/.claude`, `~/.kimi-code`) — plain copies, no symlinks, and
+**no global install** (`npm install -g` is gone). The runtime is the
+**`schedule-task` CLI** — one Node binary, no other dependencies (the
+bash/jq/tmux era is gone). In this self-contained install the CLI lives
+**inside the skill copy** at `bin/schedule-task.js`; invoke it as
+`node <skill-dir>/bin/schedule-task.js <subcommand>`, where `<skill-dir>` is
+the directory that contains this SKILL.md (the agent already knows it — it is
+the directory this skill was loaded from).
 
 The repo you schedule work in must contain the runtime **data directory** `.schedule-tasks-data/`
 (`{tasks,prompts,reports,batches,state}/` + `hooks/notify.sh`). If it is missing in the repo
-you're working in, run `schedule-task init` first (below) — it creates the data dirs and the
-worker-local state configuration.
+you're working in, run `node <skill-dir>/bin/schedule-task.js init` first (below) — it creates
+the data dirs and the worker-local state configuration.
 
 ## Sub-commands (one CLI, route on the first argument)
 
 - **`status`** — read-only report of every scheduled task. Run `git fetch` first, then
-  `schedule-task status` (from the repo) or `schedule-task status -r <repo>`, and relay its
+  `node <skill-dir>/bin/schedule-task.js status` (from the repo) or
+  `node <skill-dir>/bin/schedule-task.js status -r <repo>`, and relay its
   output verbatim (the batch-grouped table + the counts line). The CLI auto-detects the machine:
   on a *worker* it reads live `state/` flags + run logs; on the *author* box it infers state from
   each task branch's committed `.schedule-tasks-data/reports/<id>.md` (state/ is gitignored, so
   after a fetch the reporter reads the report on `origin/<branch>`; see
   `references/operations.md`). Do NOT author anything in this mode.
-  (`schedule-task status --self-test` verifies the reporter itself.)
+  (`node <skill-dir>/bin/schedule-task.js status --self-test` verifies the reporter itself.)
 
 - **`init`** — install the runtime into the current repo (the repo root, not a subdirectory)
   **and declare this machine's role**:
@@ -76,18 +82,19 @@ worker-local state configuration.
   6. Only for a `worker` role, print the exact watchdog command for that worker box. Replace
      `<repo>` with the absolute path of the repo **on the worker**:
      ```
-     schedule-task watchdog start --repo <repo>
+     node <skill-dir>/bin/schedule-task.js watchdog start --repo <repo>
      ```
      This spawns a resident daemon that checks for due tasks every 300 s (default; `--interval <s>`
      to change) and launches them as detached runners. No cron needed. Check/stop it with
-     `schedule-task watchdog status | stop`; after a machine reboot, `start` again (or add it to
+     `node <skill-dir>/bin/schedule-task.js watchdog status | stop`; after a machine reboot, `start` again (or add it to
      the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
-- **`update`** — refresh the skill installation: when the CLI runs from a git checkout it
-  pulls the latest source; when npm-installed it prints how to refresh (`./install.sh --update`
-  in the skill source directory — re-copies the skill into `~/.agents` / `~/.claude` /
-  `~/.kimi-code` and re-runs `npm install -g`).
+- **`update`** — refresh the skill installation. Installed copies are self-contained and carry
+  no `.git`, so the old git-pull / npm-reinstall flow is gone. The update path is: edit the
+  skill source repo → commit and release → on each machine re-run `./install.sh --update`
+  (or re-run the install) to replace the installed copies with the latest source. Running the
+  `update` subcommand just prints that reminder.
 
 - **`archive <id>`** — retire finished tasks: moves the envelope + prompt pair into
   `.schedule-tasks-data/{tasks,prompts}/archive/` — kept in git as a faithful record — and
@@ -107,7 +114,7 @@ worker-local state configuration.
   the process); from the author box, ssh to the worker or ask the user to run it there.
 
 - **`merge-batch <batch-id>`** — AUTHOR-side batch finalization. Run on the author box when every
-  task in the batch has finished: `schedule-task merge-batch <batch-id>` (from the repo, or with
+  task in the batch has finished: `node <skill-dir>/bin/schedule-task.js merge-batch <batch-id>` (from the repo, or with
   `-r <repo>`). It fetches `origin`, checks each task's committed report on its branch (`(done)`
   = merge it, anything else = skip and report), lands the done branches onto the manifest's
   `merge_target` (default `dev`) in manifest (dependency) order, and pushes. On a conflict it
@@ -126,8 +133,12 @@ worker-local state configuration.
   shows whether it is alive and what the last check did. Only machines with `role=worker`
   launch anything; the watchdog NEVER merges. Run these on the worker box.
 
-- **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, machine
-  identity, data-dir completeness.
+- **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, skill-copy
+  completeness (bin/ and src/ present), machine identity, data-dir completeness.
+
+- **`version`** — print this skill copy's version (from `package.json` next to this CLI).
+  Run it from each installed copy to tell which version it is — handy when several copies
+  or old leftovers exist on a machine.
 
 - **anything else / no argument** → the create flow below.
 
@@ -223,9 +234,9 @@ Then remind the user:
 - Each worker's watchdog picks up the tasks assigned to it (`worker` = its machine id) at
   `run_at` (dependencies permitting); unassigned tasks go to whichever worker pulls first.
 - Progress shows as `[[CHECKPOINT ...]]` markers; results land on each task branch +
-  `.schedule-tasks-data/reports/<id>.md` — visible via `git fetch` + `schedule-task status`.
+  `.schedule-tasks-data/reports/<id>.md` — visible via `git fetch` + `node <skill-dir>/bin/schedule-task.js status`.
 - When **all** tasks of a batch are done, the **author** lands the batch:
-  `schedule-task merge-batch <batch-id>` (PR optional) — workers never merge.
+  `node <skill-dir>/bin/schedule-task.js merge-batch <batch-id>` (PR optional) — workers never merge.
 
 ## Hard rules
 
@@ -236,7 +247,7 @@ Then remind the user:
 - Gates are prose in the prompt. There is no `gate` field in the envelope.
 - **A task runs only on its `worker`** (envelope `.worker` = machine id from `state/.machine`);
   a machine that did not declare `role=worker` never launches anything.
-- **Workers never merge. The author is the only merger** (`schedule-task merge-batch`).
+- **Workers never merge. The author is the only merger** (`node <skill-dir>/bin/schedule-task.js merge-batch`).
 - `.schedule-tasks-data/state/` is gitignored worker-local truth (incl. `.machine`); `reports/`
   + `batches/` are the committed durable records.
 - One branch per task (`automation/<id>`); never schedule work onto `main`/`dev` directly.
@@ -245,7 +256,7 @@ Then remind the user:
 
 - **node ≥ 18** + **git** are the only hard requirements. The CLI is a zero-dependency Node
   program: no jq (JSON.parse), no GNU date (Date), no tmux (detached process groups), no flock
-  (pid lock files). `claude`/`kimi` are needed on the worker. `schedule-task doctor` checks all
+  (pid lock files). `claude`/`kimi` are needed on the worker. `node <skill-dir>/bin/schedule-task.js doctor` checks all
   of this.
 - **graphify (optional)** — knowledge-graph queries for executors (`graphify query` /
   `graphify update`), ~8x cheaper than reading source files. `init`/`doctor` only **detect** the
