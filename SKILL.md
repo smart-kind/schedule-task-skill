@@ -134,7 +134,9 @@ the data dirs and the worker-local state configuration.
   launch anything; the watchdog NEVER merges. Run these on the worker box.
 
 - **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, skill-copy
-  completeness (bin/ and src/ present), machine identity, data-dir completeness.
+  completeness (bin/ and src/ present), old-scheme leftover detection (a `schedule-task` on
+  PATH that is not this skill's own copy — npm global or `~/.local/bin` symlink; advises
+  removal by hand, never deletes), machine identity, data-dir completeness.
 
 - **`version`** — print this skill copy's version (from `package.json` next to this CLI).
   Run it from each installed copy to tell which version it is — handy when several copies
