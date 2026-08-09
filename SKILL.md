@@ -90,11 +90,11 @@ the data dirs and the worker-local state configuration.
      the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
-- **`update`** — refresh the skill installation. Installed copies are self-contained and carry
-  no `.git`, so the old git-pull / npm-reinstall flow is gone. The update path is: edit the
-  skill source repo → commit and release → on each machine re-run `./install.sh --update`
-  (or re-run the install) to replace the installed copies with the latest source. Running the
-  `update` subcommand just prints that reminder.
+- **`update`** — refresh this skill installation to the latest source, right from the copy:
+  it pulls the source recorded in `.installed-from` (or clones the repo when there is no
+  recorded source) and re-runs `install.sh --update` to re-copy every platform's skill dir on
+  this machine. It does **not** remove old-scheme leftovers (npm global `schedule-task`,
+  `~/.local/bin` symlink) — clean those up by hand.
 
 - **`archive <id>`** — retire finished tasks: moves the envelope + prompt pair into
   `.schedule-tasks-data/{tasks,prompts}/archive/` — kept in git as a faithful record — and

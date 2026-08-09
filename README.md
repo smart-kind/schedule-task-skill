@@ -51,6 +51,7 @@ node <skill-dir>/bin/schedule-task.js --help      # every command
 node <skill-dir>/bin/schedule-task.js doctor      # env health check (node/git/claude/kimi/graphify)
 node <skill-dir>/bin/schedule-task.js self-test   # run the node:test suite
 node <skill-dir>/bin/schedule-task.js version     # this copy's version (run per copy to tell leftovers apart)
+node <skill-dir>/bin/schedule-task.js update      # refresh this skill to the latest source
 ```
 
 `<skill-dir>` is the directory that contains `SKILL.md` — e.g. `~/.agents/skills/schedule-task`.
@@ -114,10 +115,11 @@ With no flags and a terminal, `install.sh` asks which platform(s) to use. Then i
    There is nothing else to install.
 
 **Update later:** edit the skill source repo, commit and release, then on each machine re-run
-`./install.sh --update` in a source checkout, or use the `--update` curl one-liner in Option C —
-the source is refreshed and the skill dirs are re-copied in place. Old symlink installs from the
-previous version are never silently converted: install prints a hint (`use --update`, or delete
-the symlink by hand and reinstall).
+`./install.sh --update` in a source checkout, use the `--update` curl one-liner in Option C, or
+run `schedule-task update` from any installed copy (it pulls the latest source and re-copies
+every platform's skill dir) — the source is refreshed and the skill dirs are re-copied in
+place. Old symlink installs from the previous version are never silently converted: install
+prints a hint (`use --update`, or delete the symlink by hand and reinstall).
 
 ### Per-tool notes
 

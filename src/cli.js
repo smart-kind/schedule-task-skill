@@ -69,8 +69,8 @@ Commands:
   doctor
       Environment check: node/git/claude/kimi/graphify, machine identity, data dirs.
   update
-      Print how to refresh the skill installation (installed copies are
-      self-contained; update = re-run ./install.sh --update).
+      Refresh the skill installation: pull the latest source and re-copy every
+      installed platform copy (equivalent to ./install.sh --update).
   self-test
       Run the full node:test suite (same as \`npm test\`).
   version
@@ -213,12 +213,10 @@ async function main(argv) {
       return doctor({ repo });
     }
     case 'update': {
-      // Installed copies are self-contained (no .git, no npm global install):
-      // the only update path is re-copying the latest source via install.sh.
-      console.log('update: this skill is a self-contained copy — refresh it with:');
-      console.log('  ./install.sh --update   (in the skill source repo), or re-run the install');
-      console.log('  (curl one-liner / plain ./install.sh). Installed copies are replaced in place.');
-      return 0;
+      // Real update: pull the recorded source (or clone the repo) and re-copy
+      // every platform's skill dir via that source's install.sh --update.
+      const { update } = require('./update.js');
+      return update();
     }
     case 'self-test': {
       const root = core.skillRoot();
