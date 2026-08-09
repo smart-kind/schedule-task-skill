@@ -78,36 +78,59 @@ function dur(sec) {
   return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m`;
 }
 
-// Direct children of pid (via /proc on Linux, `ps --ppid` elsewhere).
-// null = cannot tell (no /proc, no ps).
+// Direct children of pid (via /proc on Linux, `pgrep -P` elsewhere — macOS has
+// no GNU `ps --ppid`, so pgrep is the portable fallback).
+// null = cannot tell (no /proc, no pgrep).
 function childPids(pid) {
   try {
     const kids = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim();
     return kids ? kids.split(/\s+/).map(Number).filter(Boolean) : [];
   } catch {
     try {
-      const { execFileSync } = require('node:child_process');
-      const out = execFileSync('ps', ['-o', 'pid=', '--ppid', String(pid)], { encoding: 'utf8' });
-      return out.split('\n').map((l) => Number(l.trim())).filter(Boolean);
+      const { spawnSync } = require('node:child_process');
+      const r = spawnSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' });
+      if (r.error) return null;
+      // pgrep exits 1 with empty output when there are no children — that is a
+      // legitimate [] result, not "cannot tell".
+      return r.stdout ? r.stdout.split('\n').map((l) => Number(l.trim())).filter(Boolean) : [];
     } catch {
       return null;
     }
   }
 }
 
+// "MM:SS", "HH:MM:SS" or "D-HH:MM:SS" (GNU and BSD `etime`) → seconds. null = unparseable.
+function etimeSecs(t) {
+  const s = (t || '').trim();
+  if (!s) return null;
+  let d = 0;
+  let rest = s;
+  const dm = /^(\d+)-/.exec(s);
+  if (dm) {
+    d = Number(dm[1]);
+    rest = s.slice(dm[0].length);
+  }
+  const nums = rest.split(':').map(Number);
+  if (nums.length === 3) return d * 86400 + nums[0] * 3600 + nums[1] * 60 + nums[2];
+  if (nums.length === 2) return d * 86400 + nums[0] * 60 + nums[1];
+  if (nums.length === 1 && Number.isInteger(nums[0]) && nums[0] >= 0) return d * 86400 + nums[0];
+  return null;
+}
+
 // { pid: { ppid, etimes, args } } for a set of pids; empty on failure.
+// Uses `etime` (not Linux-only `etimes`) so BSD ps on macOS parses too.
 function psInfo(pids) {
   const info = new Map();
   if (!pids.length) return info;
   try {
     const { execFileSync } = require('node:child_process');
     const out = execFileSync(
-      'ps', ['-o', 'pid=', '-o', 'ppid=', '-o', 'etimes=', '-o', 'args=', '-p', pids.join(',')],
+      'ps', ['-o', 'pid=', '-o', 'ppid=', '-o', 'etime=', '-o', 'args=', '-p', pids.join(',')],
       { encoding: 'utf8' }
     );
     for (const line of out.split('\n')) {
-      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
-      if (m) info.set(Number(m[1]), { ppid: Number(m[2]), etimes: Number(m[3]), args: m[4] });
+      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+      if (m) info.set(Number(m[1]), { ppid: Number(m[2]), etimes: etimeSecs(m[3]), args: m[4] });
     }
   } catch {
     /* ps unavailable */
@@ -171,7 +194,7 @@ function processTree(autoRoot, stateDir) {
     subtree(r.pid, allPids);
     pidToTask.set(r.pid, r.id);
   }
-  const info = psInfo(allPids);
+  const info = psInfo(allPids.filter((p) => core.isAlive(p)));
   if (!info.size) return null;
 
   const byParent = new Map();
