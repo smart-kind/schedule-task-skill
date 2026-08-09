@@ -9,6 +9,15 @@ const path = require('node:path');
 const core = require('./core.js');
 const { findInPath } = require('./init.js');
 
+// The CLI version this skill copy ships (package.json next to the source).
+const CLI_VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(core.skillRoot(), 'package.json'), 'utf8')).version;
+  } catch {
+    return '?';
+  }
+})();
+
 function doctor({ repo }) {
   let bad = 0;
   const row = (name, found, ok) => {
@@ -16,7 +25,8 @@ function doctor({ repo }) {
     if (!ok) bad += 1;
   };
 
-  console.log('schedule-task doctor');
+  const schema = core.readSchemaVersion(core.dataDir(repo));
+  console.log(`schedule-task doctor  ·  CLI v${CLI_VERSION} · data schema v${schema === null ? '—' : schema}`);
   console.log(`node        ${process.version}`);
   row('node', process.version, true);
   row('git', findInPath('git') || 'not on PATH', Boolean(findInPath('git')));
@@ -26,8 +36,9 @@ function doctor({ repo }) {
   row('graphify', graphify || 'not on PATH (optional)', true);
   if (!graphify) console.log('  hint: graphify — knowledge-graph queries for executors (saves tokens); install: uv tool install graphifyy');
 
-  // The skill copy the CLI ships from must be complete (bin + src). There is no
-  // global install anymore — the copy itself is the whole runtime.
+  // The skill copy the CLI ships from must be complete (bin + src). Under
+  // three-layer separation the copy is knowledge (the runtime is the npm global
+  // CLI installed by install.sh), but a broken copy still deserves a flag.
   const skillRoot = core.skillRoot();
   console.log(`skill-root  ${skillRoot}`);
   const hasBin = fs.existsSync(path.join(skillRoot, 'bin', 'schedule-task.js'));
@@ -36,26 +47,47 @@ function doctor({ repo }) {
   row('skill src/', hasSrc ? 'present' : 'MISSING', hasSrc);
   if (!hasBin || !hasSrc) console.log('  hint: this skill copy is incomplete — re-run ./install.sh (or ./install.sh --update) to restore it');
 
-  // Old-scheme leftovers: a `schedule-task` on PATH that is not this skill's own
-  // copy (npm global binary / ~/.local/bin symlink). The skill is now fully
-  // self-contained, so these are unused. Detect + advise — never remove anything.
-  const leftover = findInPath('schedule-task');
-  if (leftover) {
-    let real = leftover;
-    try { real = fs.realpathSync(leftover); } catch { /* broken symlink */ }
+  // Runtime CLI. Under three-layer separation the running CLI is the npm global
+  // install (`npm install -g` by install.sh); the copy's bin/ is reference
+  // only. Old-scheme leftovers — a ~/.local/bin schedule-task symlink — are
+  // still flagged. Detect + advise, never remove anything.
+  const homeBin = path.join(os.homedir(), '.local', 'bin', 'schedule-task');
+  const cliPath = findInPath('schedule-task');
+  let cliDesc = 'not on PATH';
+  let cliOk = false;
+  if (cliPath) {
+    let real = cliPath;
+    try { real = fs.realpathSync(cliPath); } catch { /* broken symlink */ }
     const mine = fs.realpathSync(path.join(skillRoot, 'bin', 'schedule-task.js'));
-    if (real !== mine) {
-      const homeBin = path.join(os.homedir(), '.local', 'bin', 'schedule-task');
-      console.log(`leftover  schedule-task on PATH at ${leftover} (old-scheme install)`);
-      if (path.resolve(leftover) === path.resolve(homeBin)) {
-        console.log(`  hint: old-scheme CLI symlink (~/.local/bin) — unused now; remove it by hand: rm "${leftover}"`);
-      } else if (/[\\/]node_modules[\\/]schedule-task/.test(real) || underNpmGlobalBin(leftover)) {
-        console.log('  hint: npm-global install — unused now; remove it by hand: npm uninstall -g schedule-task');
+    if (path.resolve(cliPath) === path.resolve(homeBin)) {
+      cliDesc = `${cliPath} (old-scheme ~/.local/bin symlink)`;
+      console.log(`leftover  schedule-task on PATH at ${cliPath} (old-scheme install)`);
+      console.log(`  hint: unused under three-layer separation — remove it: rm "${cliPath}"`);
+    } else if (/[\\/]lib[\\/]node_modules[\\/]schedule-task[\\/]/.test(real) || underNpmGlobalBin(cliPath)) {
+      // npm global install — the expected runtime under three-layer separation.
+      // On a dev machine the global install symlinks to the source tree, so
+      // `real` may equal this copy's bin — npm-prefix detection still wins.
+      cliDesc = `${cliPath} (npm global)`;
+      let ver = '';
+      try {
+        ver = JSON.parse(fs.readFileSync(path.join(real, '..', '..', 'package.json'), 'utf8')).version;
+      } catch { /* no readable package.json next to the global bin */ }
+      if (ver && ver !== CLI_VERSION) {
+        cliDesc += ` v${ver} — mismatch with skill copy v${CLI_VERSION}`;
+        console.log(`  hint: global CLI v${ver} does not match the skill copy v${CLI_VERSION} — re-run ./install.sh --update`);
       } else {
-        console.log("  hint: not this skill's copy — if it is an old install, remove it by hand");
+        cliDesc += ver ? ` v${ver}` : '';
+        cliOk = true;
       }
+    } else if (real === mine) {
+      cliDesc = `${cliPath} (this skill copy's bin — reference only; the global CLI is the runtime)`;
+      cliOk = true;
+    } else {
+      cliDesc = `${cliPath} (not this skill's copy — check what it is)`;
     }
   }
+  row('cli', cliDesc, cliOk);
+  if (!cliOk && !cliPath) console.log('  hint: no global schedule-task CLI on PATH — re-run ./install.sh (installs the skill copies + `npm install -g`)');
 
   const dataRoot = core.dataDir(repo);
   const stateDir = core.stateDir(repo);

@@ -38,20 +38,45 @@ test('doctor flags a ~/.local/bin/schedule-task symlink leftover and tells how t
   }
 });
 
-test('doctor flags an npm-global schedule-task leftover and advises npm uninstall -g', () => {
+test('doctor accepts an npm-global schedule-task as the runtime (not a leftover)', () => {
   const t = h.tmpdir('schedtask-doctor-');
   try {
     // Mimic npm's global layout: <prefix>/bin/schedule-task -> <prefix>/lib/node_modules/schedule-task/bin/schedule-task.js
     const pfx = path.join(t, 'npm-prefix');
-    const real = path.join(pfx, 'lib', 'node_modules', 'schedule-task', 'bin', 'schedule-task.js');
+    const pkgDir = path.join(pfx, 'lib', 'node_modules', 'schedule-task');
+    const real = path.join(pkgDir, 'bin', 'schedule-task.js');
     fs.mkdirSync(path.dirname(real), { recursive: true });
     fs.writeFileSync(real, '#!/usr/bin/env node\nconsole.log("stub");\n', 'utf8');
     fs.chmodSync(real, 0o755);
+    // A real package.json matching the skill copy, so the version check passes.
+    const { version } = require('../package.json');
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ version }), 'utf8');
     fs.mkdirSync(path.join(pfx, 'bin'), { recursive: true });
     fs.symlinkSync(real, path.join(pfx, 'bin', 'schedule-task'));
     const r = runDoctor({ PATH: `${path.join(pfx, 'bin')}:${process.env.PATH}` });
-    assert.match(r.stdout, /leftover/);
-    assert.match(r.stdout, /npm uninstall -g schedule-task/);
+    assert.match(r.stdout, /npm global/);
+    assert.doesNotMatch(r.stdout, /leftover/);
+    assert.doesNotMatch(r.stdout, /npm uninstall -g/); // the global install is the runtime now
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('doctor flags a stale npm-global CLI whose version does not match the skill copy', () => {
+  const t = h.tmpdir('schedtask-doctor-');
+  try {
+    const pfx = path.join(t, 'npm-prefix');
+    const pkgDir = path.join(pfx, 'lib', 'node_modules', 'schedule-task');
+    const real = path.join(pkgDir, 'bin', 'schedule-task.js');
+    fs.mkdirSync(path.dirname(real), { recursive: true });
+    fs.writeFileSync(real, '#!/usr/bin/env node\nconsole.log("stub");\n', 'utf8');
+    fs.chmodSync(real, 0o755);
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ version: '0.0.1' }), 'utf8');
+    fs.mkdirSync(path.join(pfx, 'bin'), { recursive: true });
+    fs.symlinkSync(real, path.join(pfx, 'bin', 'schedule-task'));
+    const r = runDoctor({ PATH: `${path.join(pfx, 'bin')}:${process.env.PATH}` });
+    assert.match(r.stdout, /does not match/);
+    assert.match(r.stdout, /install\.sh --update/);
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }

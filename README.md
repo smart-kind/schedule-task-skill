@@ -43,20 +43,21 @@ only hard requirements are **node ≥ 18** and **git**; the old bash/jq/GNU-date
 is gone. `jq` is JSON.parse, GNU date is `Date`, tmux sessions are detached process groups
 (killed via `kill(-pgid)`), flock is a pid lock file.
 
-The CLI ships **inside the skill itself — there is no global install.** In the installed copy
-(or the source checkout) it lives at `bin/schedule-task.js`:
+The install is **three-layer separated** (see `docs/refactor-three-layer-separation.md`): the
+CLI is installed **once per machine** as a global command by `install.sh` (`npm install -g`),
+the skill copies are knowledge (SKILL.md/references/templates, `bin/`+`src/` reference-only),
+and `.schedule-tasks-data/` is per-project data. The CLI runs the same everywhere:
 
 ```bash
-node <skill-dir>/bin/schedule-task.js --help      # every command
-node <skill-dir>/bin/schedule-task.js doctor      # env health check (node/git/claude/kimi/graphify)
-node <skill-dir>/bin/schedule-task.js self-test   # run the node:test suite
-node <skill-dir>/bin/schedule-task.js version     # this copy's version (run per copy to tell leftovers apart)
-node <skill-dir>/bin/schedule-task.js update      # refresh this skill to the latest source
+schedule-task --help      # every command
+schedule-task doctor      # env health check (node/git/claude/kimi/graphify) — prints CLI vX · data schema vY
+schedule-task self-test   # run the node:test suite
+schedule-task version     # the CLI version
+schedule-task update      # refresh the whole install to the latest source
 ```
 
-`<skill-dir>` is the directory that contains `SKILL.md` — e.g. `~/.agents/skills/schedule-task`.
-Throughout the rest of this README, `schedule-task <cmd>` is shorthand for
-`node <skill-dir>/bin/schedule-task.js <cmd>`.
+`schedule-task <cmd>` is the same command on every machine — no per-copy invocation, no version
+drift between installs.
 
 ## Install
 
@@ -106,20 +107,20 @@ curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main
 
 With no flags and a terminal, `install.sh` asks which platform(s) to use. Then it:
 
-1. **Copies** the skill into each chosen platform's skills dir — a plain user-level copy,
-   **no symlinks, no global install** (self-contained: the same layout works on macOS and a
-   VPS): `~/.kimi-code/skills/schedule-task`, `~/.claude/skills/schedule-task`,
-   `~/.agents/skills/schedule-task`. `.git` and `graphify-out/` are stripped from each copy,
-   and a `.installed-from` marker records the source.
-2. Prints how to run the CLI from each copy — `node <skill-dir>/bin/schedule-task.js <cmd>`.
-   There is nothing else to install.
+1. **Installs the global CLI** — `npm install -g <source>` puts the `schedule-task` command on
+   PATH (tool layer, once per machine).
+2. **Copies the skill** into each chosen platform's skills dir — a plain user-level copy, no
+   symlinks (the same layout works on macOS and a VPS): `~/.kimi-code/skills/schedule-task`,
+   `~/.claude/skills/schedule-task`, `~/.agents/skills/schedule-task`. `.git` and
+   `graphify-out/` are stripped from each copy, and a `.installed-from` marker records the
+   source. These are knowledge copies — the runtime is the global CLI from step 1.
 
 **Update later:** edit the skill source repo, commit and release, then on each machine re-run
 `./install.sh --update` in a source checkout, use the `--update` curl one-liner in Option C, or
-run `schedule-task update` from any installed copy (it pulls the latest source and re-copies
-every platform's skill dir) — the source is refreshed and the skill dirs are re-copied in
-place. Old symlink installs from the previous version are never silently converted: install
-prints a hint (`use --update`, or delete the symlink by hand and reinstall).
+run `schedule-task update` from any installed copy (it pulls the latest source, refreshes the
+global CLI with `npm install -g`, and re-copies every platform's skill dir). A `~/.local/bin`
+symlink leftover from older versions is never silently converted: install prints a hint
+(`use --update`, or delete the symlink by hand and reinstall).
 
 ### Per-tool notes
 
@@ -171,7 +172,7 @@ schedule-task/
 ├── SKILL.md                  # the skill: status (default) / dev / audit / archive / init / watchdog / cancel / log / doctor / version
 ├── README.md                 # this file
 ├── package.json              # zero runtime deps; bin → bin/schedule-task.js; npm test
-├── install.sh                # installs self-contained skill copies (no symlinks, no global CLI)
+├── install.sh                # three-layer install: global CLI (npm install -g) + knowledge skill copies
 ├── bin/schedule-task.js      # CLI launcher (shebang; everything is in src/)
 ├── src/                      # the whole runtime — one module per concern
 │   ├── cli.js                # command table + arg parsing + help
@@ -187,6 +188,7 @@ schedule-task/
 │   ├── archive.js            # AUTHOR-side batch close-out (summary + archive/)
 │   ├── init.js               # per-repo setup + automation/ migration
 │   ├── log.js                # `log <id> [-f]` — tail a run log
+│   ├── migrate.js            # deterministic data-schema upgrade (stamps .schedule-tasks-data/version)
 │   └── doctor.js             # environment health check
 ├── templates/
 │   ├── harness-common.md     # shared task rules (graphify, TEST_HEADER, checkpoints, resume)
@@ -204,6 +206,7 @@ Per-project data (created by `init`, gitignored part is `state/`):
 
 ```
 <repo>/.schedule-tasks-data/
+├── version                                  # committed data schema version (upgraded by `schedule-task migrate`)
 ├── tasks/  prompts/  reports/  batches/  templates/   # committed (each has archive/ where applicable)
 ├── state/                                  # gitignored: .machine, <id>, <id>.notes, <id>.pid, .watchdog.pid, .watchdog.status
 └── hooks/notify.sh                         # per-project notification hook
@@ -212,6 +215,26 @@ Per-project data (created by `init`, gitignored part is `state/`):
 Worker-local run state (per machine, per repo): `~/.local/state/schedule-task/<repo-basename>/`
 with `<id>/run.log`, `<id>/attempt-<n>.jsonl`, `<id>/session_id`, `worktrees/<id>`,
 `watchdog.log`.
+
+## Program version vs data schema
+
+Two version numbers are managed separately:
+
+- **Program version** (`package.json` version, printed as `CLI vX`) — bumps on any code change.
+- **Data schema** (`.schedule-tasks-data/version`, printed as `data schema vY`) — the format
+  contract of `envelope`/`prompt`/`report`/`state`. Bumps only when the data formats change.
+
+`status`/`doctor` print both on one line (`CLI v3.1.0 · data schema v1`). The rule is:
+
+- data schema **<** CLI schema → **needs `schedule-task migrate`** (read commands warn and keep
+  working; write commands `run`/`audit`/`cancel`/`archive` **hard-stop** with a migrate hint).
+- data schema **>** CLI schema → the CLI is too old; refuse and upgrade the CLI
+  (`install.sh --update`).
+- equal → normal operation.
+
+`migrate` is deterministic (no AI): it upgrades the committed schema version in place. Commit the
+current state first, then run it — rollback is a git revert. On a fresh repo, `schedule-task
+init` writes the current schema version.
 
 ## Back-compat & rollback
 

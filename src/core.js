@@ -28,6 +28,49 @@ function pinEnv() {
 }
 
 // ---------------------------------------------------------------------------
+// Data schema version — the committed data-format contract, NOT the package
+// version. Bump SCHEMA_VERSION only when envelope/prompt/report/state formats
+// change (low frequency); package.json version bumps on any code change.
+//   .schedule-tasks-data/version < SCHEMA_VERSION  → needs `migrate`
+//   .schedule-tasks-data/version > SCHEMA_VERSION  → CLI too old, refuse
+// ---------------------------------------------------------------------------
+
+const SCHEMA_VERSION = 1;
+
+// Read the committed data schema version from a data root. Returns null when
+// the data dir is absent (nothing to check); an existing data dir without a
+// version file is legacy v0 (needs migrate — write commands must not touch it).
+function readSchemaVersion(autoRoot) {
+  if (!fs.existsSync(autoRoot)) return null;
+  try {
+    const n = Number(String(fs.readFileSync(path.join(autoRoot, 'version'), 'utf8')).trim());
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0; // data dir present but unversioned → legacy
+  }
+}
+
+// The schema gate for a repo. Status codes:
+//   { status: 'no-data' }                    — no .schedule-tasks-data/ at all
+//   { status: 'ok' }                         — data schema == CLI schema
+//   { status: 'migrate-needed', data }       — data < CLI schema (needs migrate)
+//   { status: 'cli-too-old', data }          — data > CLI schema (upgrade CLI)
+function schemaCheck(repo) {
+  const data = readSchemaVersion(dataDir(repo));
+  if (data === null) return { status: 'no-data' };
+  if (data === SCHEMA_VERSION) return { status: 'ok' };
+  if (data < SCHEMA_VERSION) return { status: 'migrate-needed', data };
+  return { status: 'cli-too-old', data };
+}
+
+// Stamp the current schema version into a data dir (init on fresh installs,
+// migrate on upgrades). The file is committed — it rides git with the data.
+function writeSchemaVersion(autoRoot) {
+  ensureDir(autoRoot);
+  fs.writeFileSync(path.join(autoRoot, 'version'), `${SCHEMA_VERSION}\n`, 'utf8');
+}
+
+// ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
@@ -315,6 +358,10 @@ function logLine(file, line) {
 module.exports = {
   pinEnv,
   resolveRepo,
+  SCHEMA_VERSION,
+  readSchemaVersion,
+  schemaCheck,
+  writeSchemaVersion,
   dataDir,
   stateDir,
   logRoot,

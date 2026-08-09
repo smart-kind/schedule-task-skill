@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
-# install.sh — install the schedule-task skill as self-contained copies. Works two ways:
+# install.sh — three-layer install of schedule-task. Works two ways:
 #   A. From a clone:     git clone <repo> && cd <repo> && ./install.sh
 #   B. From a URL (public repo): curl -fsSL <raw install.sh URL> | bash
+#
+# Three layers (see docs/refactor-three-layer-separation.md):
+#   1. TOOL layer — the CLI: `npm install -g <source>`, once per machine. The
+#      `schedule-task` command is the runtime everywhere.
+#   2. KNOWLEDGE layer — the skill (SKILL.md/references/templates; bin/src as
+#      reference only) copied into each agent's skills dir as a REAL copy (no
+#      symlinks — same layout on macOS and a VPS), then .git and graphify-out
+#      are deleted from the copy and .installed-from is stamped.
+#   3. DATA layer — per-project .schedule-tasks-data/, created and managed by
+#      the CLI (init/migrate), committed with git — this script never touches it.
 #
 # Flow:
 #   1. If not running inside the repo (no repo markers in cwd), clone the repo
 #      into ~/.local/share/schedule-task/src first, then work from there.
-#   2. Ask which agent platform(s) to install the skill into
+#   2. npm install -g the CLI (skipped with a warning when npm is missing).
+#   3. Ask which agent platform(s) to install the skill into
 #      (kimi-code / claude / agents), or take --platform / --yes.
-#   3. Copy the skill into each chosen platform's skills dir as a REAL copy
-#      (no symlinks — self-contained, same layout on macOS and a VPS), then
-#      delete .git and graphify-out from the copy and stamp .installed-from.
-#
-# There is NO global install (no `npm install -g`): the copy's own
-# bin/schedule-task.js is the whole CLI — run it with `node <copy>/bin/schedule-task.js`.
 #
 # Non-interactive: --platform=kimi-code,claude,agents (or all) and/or --yes.
-# Idempotent: existing copies are SKIPped unless --update replaces them.
+# Idempotent: existing copies are SKIPped unless --update replaces them; the
+# npm global install is refreshed on every run.
 #
 # Usage: ./install.sh [--platform=kimi-code,claude|all] [--yes] [--update] [--dry-run]
 set -uo pipefail
@@ -27,6 +33,7 @@ SRC_DIR="$STATE_DIR/src"
 DRY_RUN=0
 UPDATE=0
 YES=0
+SKIP_GLOBAL=0
 PLATFORM_ARG=""
 
 for arg in "$@"; do
@@ -34,6 +41,7 @@ for arg in "$@"; do
     --dry-run) DRY_RUN=1 ;;
     --update)  UPDATE=1 ;;
     --yes)     YES=1 ;;
+    --skip-global) SKIP_GLOBAL=1 ;;
     --platform=*) PLATFORM_ARG="${arg#--platform=}" ;;
     *) echo "install.sh: unknown option '$arg' (use --platform=all or --platform=kimi-code,claude)" >&2; exit 2 ;;
   esac
@@ -160,7 +168,7 @@ elif [ "$YES" -eq 0 ] && [ -t 0 ]; then
 fi
 
 if [ "$SELECT" = "none" ] || [ -z "$SELECT" ]; then
-  echo "no skill copy requested — nothing to install (the CLI ships inside the skill copy)."
+  echo "no skill copy requested — only the global CLI will be installed."
 fi
 
 IFS=',' read -r -a SELECTED <<< "$SELECT"
@@ -174,9 +182,27 @@ for name in "${SELECTED[@]}"; do
 done
 
 echo "----"
+# Tool layer: the global CLI, one copy per machine, used by every skill copy.
+# `npm install -g <repo>` installs bin/schedule-task.js + src/ into the npm
+# prefix; the `schedule-task` command then works from anywhere. update.js passes
+# --skip-global because it already ran the npm install itself.
+if [ "$SKIP_GLOBAL" -eq 1 ]; then
+  echo "CLI: global install skipped (--skip-global — already installed by \`schedule-task update\`)"
+elif command -v npm >/dev/null 2>&1; then
+  echo "CLI: npm install -g \"$REPO_ROOT\" (global command: schedule-task)"
+  run npm install -g "$REPO_ROOT"
+else
+  echo "WARN npm not found — the global \`schedule-task\` CLI was NOT installed."
+  echo "     install node/npm first, then re-run ./install.sh (the skill copies above"
+  echo "     still work standalone via node <copy>/bin/schedule-task.js)."
+fi
+
+echo "----"
 echo "install.sh: $copied copied, $replaced replaced, $skipped skipped, $absent parent(s) absent$([ "$DRY_RUN" -eq 1 ] && echo ' (dry-run — nothing changed)')"
-echo "The skill is self-contained: the CLI is inside each copy at bin/schedule-task.js."
-echo "Run it as:  node <skills-dir>/schedule-task/bin/schedule-task.js <subcommand>"
-echo "There is no global install — nothing else is installed or needed."
+echo "Three-layer separation:"
+echo "  tool      — global CLI \`schedule-task\` (npm install -g$([ "$DRY_RUN" -eq 1 ] && echo ' — dry-run, not executed' || echo ' — done above'))"
+echo "  knowledge — skill copies in each agent's skills/schedule-task (SKILL.md/references/templates; bin/src reference-only)"
+echo "  data      — per project .schedule-tasks-data/ (created by \`schedule-task init\`, rides git)"
+echo "Run the CLI as: schedule-task <subcommand>  (e.g. schedule-task doctor)"
 echo "To update later, re-run ./install.sh --update (or the curl one-liner) after a new release."
-echo "Old-scheme leftovers (npm global \`schedule-task\`, ~/.local/bin/schedule-task symlink) are unused now — remove them by hand at your convenience."
+echo "Old ~/.local/bin/schedule-task symlink leftovers are unused — remove them by hand at your convenience."

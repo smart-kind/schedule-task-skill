@@ -84,3 +84,79 @@ test('dev refuses to open a new batch while one is open', async () => {
     fs.rmSync(t, { recursive: true, force: true });
   }
 });
+
+test('write command hard-stops on stale (unversioned) data schema until migrate runs', async () => {
+  const t = helpers.tmpdir();
+  try {
+    const { repo } = helpers.makeRepo(t, 'repo-schema');
+    // An existing data dir WITHOUT a version file = legacy v0 (needs migrate).
+    fs.mkdirSync(path.join(helpers.dataRoot(repo), 'tasks'), { recursive: true });
+
+    const errs = [];
+    const origErr = process.stderr.write;
+    process.stderr.write = (s) => { errs.push(String(s)); return true; };
+    let code;
+    try {
+      code = await main(['run', 'T1', '-r', repo]);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    assert.equal(code, 1, 'write command hard-stops');
+    assert.match(errs.join(''), /schedule-task migrate/);
+
+    const codeM = await main(['migrate', '-r', repo]);
+    assert.equal(codeM, 0, 'migrate succeeds');
+    assert.equal(fs.readFileSync(path.join(helpers.dataRoot(repo), 'version'), 'utf8').trim(), '1');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('read command warns but continues on stale data schema', async () => {
+  const t = helpers.tmpdir();
+  try {
+    const { repo } = helpers.makeRepo(t, 'repo-schema-read');
+    fs.mkdirSync(path.join(helpers.dataRoot(repo), 'tasks'), { recursive: true });
+
+    const errs = [];
+    const origErr = process.stderr.write;
+    process.stderr.write = (s) => { errs.push(String(s)); return true; };
+    let code;
+    try {
+      code = await main(['dev', '-r', repo]); // read-only gate
+    } finally {
+      process.stderr.write = origErr;
+    }
+    assert.equal(code, 0, 'read command keeps working');
+    assert.match(errs.join(''), /migrate/);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('data schema newer than the CLI refuses everything (upgrade the CLI)', async () => {
+  const t = helpers.tmpdir();
+  try {
+    const { repo } = helpers.makeRepo(t, 'repo-schema-new');
+    fs.mkdirSync(helpers.dataRoot(repo), { recursive: true });
+    fs.writeFileSync(path.join(helpers.dataRoot(repo), 'version'), '999\n', 'utf8');
+    const code = await main(['status', '-r', repo]);
+    assert.equal(code, 1, 'cli-too-old refuses read commands too');
+    const codeM = await main(['migrate', '-r', repo]);
+    assert.equal(codeM, 1, 'migrate refuses when the CLI is too old');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('migrate on a repo with no data dir is a no-op', async () => {
+  const t = helpers.tmpdir();
+  try {
+    const repo = path.join(t, 'repo-empty');
+    fs.mkdirSync(repo, { recursive: true });
+    const code = await main(['migrate', '-r', repo]);
+    assert.equal(code, 0);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});

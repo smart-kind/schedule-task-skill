@@ -21,6 +21,15 @@ const { git, showFile } = require('./git.js');
 
 const COL = (s, n) => s.padEnd(n);
 
+// The CLI version this skill copy ships (package.json next to the source).
+const CLI_VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(core.skillRoot(), 'package.json'), 'utf8')).version;
+  } catch {
+    return '?';
+  }
+})();
+
 function detectMode({ autoRoot, logRoot, mode }) {
   if (mode) return mode;
   try {
@@ -330,6 +339,8 @@ function render({ repo, autoRoot, logRoot, mode }) {
   const tasksDir = path.join(autoRoot, 'tasks');
 
   say(`schedule-task status  ·  mode: ${mode}  ·  root: ${autoRoot}`);
+  const schema = core.readSchemaVersion(autoRoot);
+  say(`CLI v${CLI_VERSION} · data schema v${schema === null ? '—' : schema}`);
   say(`${COL('ID', 34)} ${COL('TYPE', 6)} ${COL('SCHEDULE', 14)} ${COL('STATE', 12)} ${'DETAIL'}`);
 
   // Pass 1 — compute every task's row once (same logic batched or not).
@@ -517,6 +528,7 @@ function selfTest() {
     const piso = new Date(past * 1000).toISOString();
 
     const put = (p, c) => fs.writeFileSync(path.join(tmp, p), c, 'utf8');
+    put('version', `${core.SCHEMA_VERSION}\n`); // current data schema — self-test exercises the version line
     put('tasks/pend-me.json', JSON.stringify({ id: 'pend-me', type: 'dev', schedule: { run_at: fiso } }));
     put('tasks/done-me.json', JSON.stringify({ id: 'done-me', type: 'test', schedule: { run_at: piso } }));
     put('reports/done-me.md', `# Report — done-me (dev-done)\n- Attempts: 2\n- Finished: ${piso}\n`);

@@ -160,3 +160,25 @@ Adding a new executor CLI = adding one profile to agents.js. Nothing else change
   per-repo pid lock makes the launch decision single-writer, so two overlapping ticks (or two
   watchdog daemons) can never double-launch the same task. `watchdog start` itself refuses to
   run a second daemon for the same repo (`state/.watchdog.pid`).
+
+## Install topology: three-layer separation
+
+How the code is shipped (independent of the trigger/driver layers above) — see
+[`docs/refactor-three-layer-separation.md`](../docs/refactor-three-layer-separation.md):
+
+| Layer | Content | Where | Updated by |
+|---|---|---|---|
+| Knowledge | SKILL.md, references/, templates/ (`bin/`+`src/` reference-only) | each agent's `skills/schedule-task` — real copies, no symlinks | `install.sh` |
+| Tool | the whole CLI (`bin/`+`src/`) | **one** npm-global install per machine (`npm install -g`) | `install.sh` / `schedule-task update` |
+| Data | `.schedule-tasks-data/` (tasks/prompts/reports/batches/state/hooks + `version`) | per project, committed with git | CLI (`init`/`migrate`) + task runs |
+
+**Program version vs data schema.** `package.json` version (`CLI vX`) bumps on any code change;
+`.schedule-tasks-data/version` (`data schema vY`) is the envelope/prompt/report/state format
+contract and bumps only when those formats change. The rule in `src/core.js` (`schemaCheck`):
+data < CLI → read commands warn, write commands (`run`/`audit`/`cancel`/`archive`) hard-stop
+until `schedule-task migrate`; data > CLI → refuse everything (upgrade the CLI). `migrate`
+(`src/migrate.js`) is deterministic: commit first, run, rollback = git revert.
+
+**Running-task isolation.** `bin/schedule-task.js` preloads every `src/*.js` module at startup,
+so an `install.sh` replacing files mid-run can never mix old and new code inside a live process
+(Node `require` is runtime, so without preloading, late requires would read replaced files).

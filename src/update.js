@@ -1,11 +1,11 @@
 'use strict';
-// update.js — `schedule-task update`: actually refresh the skill installation.
-// Installed copies are self-contained (no .git, no global install), so this
-// pulls the source recorded in `.installed-from` (or clones the repo when there
-// is no recorded source), then re-runs that source's install.sh --update to
-// re-copy every platform's skill dir on this machine. Old-scheme leftovers
-// (npm global binary, ~/.local/bin symlink) are NOT touched — removing them is
-// a manual step.
+// update.js — `schedule-task update`: actually refresh the installation.
+// Under three-layer separation this means BOTH layers on this machine:
+//   1. the global CLI (npm install -g from the source),
+//   2. every platform's skill copy (knowledge layer, via install.sh --update).
+// The source is pulled from what `.installed-from` records (or cloned from the
+// repo when there is no recorded source). A ~/.local/bin schedule-task symlink
+// leftover is NOT touched — removing it is a manual step.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -55,17 +55,28 @@ function update() {
     if (!run('git', ['clone', '--depth', '1', DEFAULT_REPO_URL, source])) return 1;
   }
 
-  // 2. Re-copy every platform from the (refreshed) source.
+  // 2. Tool layer: refresh the global CLI from the (refreshed) source.
+  console.log('update: installing the global CLI (npm install -g)');
+  if (run('npm', ['install', '-g', source])) {
+    console.log('update: global CLI refreshed — `schedule-task` now matches the source.');
+  } else {
+    console.error('update: npm install -g failed — the global CLI still runs the old version. Re-run install.sh --update.');
+    return 1;
+  }
+
+  // 3. Knowledge layer: re-copy every platform's skill dir from the source
+  // (--skip-global: the tool layer was just refreshed above — avoid a double
+  // npm install -g).
   const inst = path.join(source, 'install.sh');
   if (!fs.existsSync(inst)) {
     console.error(`update: ${inst} not found — cannot re-copy the skill`);
     return 1;
   }
-  console.log('update: re-copying skill copies (install.sh --update --yes)');
-  if (!run('bash', [inst, '--update', '--yes'], { cwd: source })) return 1;
-  console.log('update: done — every platform copy now matches the latest source.');
-  console.log('  Old-scheme leftovers (npm global `schedule-task`, ~/.local/bin/schedule-task symlink)');
-  console.log('  are not touched; remove them by hand if present.');
+  console.log('update: re-copying skill copies (install.sh --update --yes --skip-global)');
+  if (!run('bash', [inst, '--update', '--yes', '--skip-global'], { cwd: source })) return 1;
+  console.log('update: done — the global CLI and every platform copy now match the latest source.');
+  console.log('  A ~/.local/bin/schedule-task symlink leftover (if present) is not touched;');
+  console.log('  remove it by hand. Old data dirs, if any, need `schedule-task migrate` per project.');
   return 0;
 }
 

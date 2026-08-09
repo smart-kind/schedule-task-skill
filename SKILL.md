@@ -55,31 +55,42 @@ Everything here is agent-neutral: tasks are executed by the coding agent CLI con
 
 ## Prerequisite
 
-Install the runtime once per machine: run `./install.sh` in the skill source
-directory, or simply copy this skill directory into an agent's skills dir
-(`~/.agents`, `~/.claude`, `~/.kimi-code`) — plain copies, no symlinks, and
-**no global install** (`npm install -g` is gone). The runtime is the
-**`schedule-task` CLI** — one Node binary, no other dependencies (the
-bash/jq/tmux era is gone). In this self-contained install the CLI lives
-**inside the skill copy** at `bin/schedule-task.js`; invoke it as
-`node <skill-dir>/bin/schedule-task.js <subcommand>`, where `<skill-dir>` is
-the directory that contains this SKILL.md (the agent already knows it — it is
-the directory this skill was loaded from).
+One command installs everything on a machine: **`./install.sh`** (run in a clone of the repo, or
+the `curl -fsSL <raw install.sh URL> | bash` one-liner). It installs **three layers**
+(see `docs/refactor-three-layer-separation.md` in the repo):
+
+- **Tool layer — the global CLI.** `npm install -g` puts the **`schedule-task`** command on
+  PATH. This is the runtime: **invoke it as `schedule-task <subcommand>`** from any repo. One
+  copy per machine — no code duplication, no version drift between machines.
+- **Knowledge layer — this skill.** `install.sh` copies the skill into each agent's skills dir
+  (`~/.agents`, `~/.claude`, `~/.kimi-code`) as plain copies — SKILL.md/references/templates,
+  plus `bin/`+`src/` **as reference only** (they are NOT the runtime). `.git` and
+  `graphify-out/` are stripped, and a `.installed-from` marker records the source.
+- **Data layer — per project.** `.schedule-tasks-data/` lives in each repo, created by
+  `schedule-task init`, committed with git.
 
 The repo you schedule work in must contain the runtime **data directory** `.schedule-tasks-data/`
 (`{tasks,prompts,reports,batches,state,templates}/` + `hooks/notify.sh`). If it is missing in
-the repo you're working in, run `node <skill-dir>/bin/schedule-task.js init` first (below) — it
-creates the data dirs and the worker-local state configuration.
+the repo you're working in, run `schedule-task init` first (below) — it creates the data dirs,
+the worker-local state configuration, and the committed data schema version
+(`.schedule-tasks-data/version`).
+
+**Updating later:** the developer improves the repo → pushes a release → every machine runs
+`./install.sh --update` (or `schedule-task update`) to refresh the global CLI + skill copies.
+Data migration after an upgrade is per-project and AI-assisted: `status`/`doctor` warn when
+`.schedule-tasks-data/version` is older than the CLI (`CLI vX · data schema vY`); write commands
+(`run`/`audit`/`cancel`/`archive`) **hard-stop** with a hint to run **`schedule-task migrate`**
+first (commit first — rollback is a git revert).
 
 ## Sub-commands (one CLI, route on the first argument)
 
 - **no argument / `status`** — read-only report of every scheduled task. Run `git fetch` first,
-  then `node <skill-dir>/bin/schedule-task.js status` (from the repo) or
-  `... status -r <repo>`, and relay its output verbatim (the batch-grouped table + the counts
-  line). The CLI auto-detects the machine: on a *worker* it reads live `state/` flags + run
-  logs; on the *author* box it infers state from the reports **merged to `dev`** (state/ is
-  gitignored, so after a fetch the reporter reads `origin/<inbox>`; see
-  `references/operations.md`). Do NOT author anything in this mode.
+  then `schedule-task status` (from the repo) or `schedule-task status -r <repo>`, and relay its
+  output verbatim (the version line, the batch-grouped table + the counts line). The CLI
+  auto-detects the machine: on a *worker* it reads live `state/` flags + run logs; on the
+  *author* box it infers state from the reports **merged to `dev`** (state/ is gitignored, so
+  after a fetch the reporter reads `origin/<inbox>`; see `references/operations.md`). Do NOT
+  author anything in this mode.
   (`... status --self-test` verifies the reporter itself.)
 
 - **`dev`** — the gate to START a new dev batch. It refuses while a batch is still open
@@ -132,19 +143,19 @@ creates the data dirs and the worker-local state configuration.
   6. Only for a `worker` role, print the exact watchdog command for that worker box. Replace
      `<repo>` with the absolute path of the repo **on the worker**:
      ```
-     node <skill-dir>/bin/schedule-task.js watchdog start --repo <repo>
+     schedule-task watchdog start --repo <repo>
      ```
      This spawns a resident daemon that checks for due tasks every 300 s (default; `--interval <s>`
      to change) and launches them as detached runners. No cron needed. Check/stop it with
-     `node <skill-dir>/bin/schedule-task.js watchdog status | stop`; after a machine reboot, `start` again (or add it to
+     `schedule-task watchdog status | stop`; after a machine reboot, `start` again (or add it to
      the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
-- **`update`** — refresh this skill installation to the latest source, right from the copy:
-  it pulls the source recorded in `.installed-from` (or clones the repo when there is no
-  recorded source) and re-runs `install.sh --update` to re-copy every platform's skill dir on
-  this machine. It does **not** remove old-scheme leftovers (npm global `schedule-task`,
-  `~/.local/bin` symlink) — clean those up by hand.
+- **`update`** — refresh the whole installation to the latest source, right from the copy: it
+  pulls the source recorded in `.installed-from` (or clones the repo when there is no recorded
+  source), re-runs `npm install -g` for the global CLI, and `install.sh --update` to re-copy
+  every platform's skill dir on this machine. It does **not** remove a `~/.local/bin/schedule-task`
+  symlink leftover — clean that up by hand.
 
 - **`archive [<batch-id>]`** — AUTHOR-side batch close-out (default: the current batch). Every
   member (dev + audit) must be terminal. Writes a batch summary report
@@ -166,6 +177,11 @@ creates the data dirs and the worker-local state configuration.
 - **`log <id> [-f]`** — tail a task's run log live (this is how you watch a running task now —
   the old `tmux attach` is gone). `-f` follows new lines.
 
+- **`migrate`** — upgrade the committed data schema (`.schedule-tasks-data/version`) to this
+  CLI's schema. Deterministic — the CLI only re-stamps the version; commit the current state
+  first so rollback is a git revert. Run it when `status`/`doctor` show a stale data schema
+  (`CLI vX · data schema vY`), or when a write command hard-stops with a migrate hint.
+
 - **`watchdog start|stop|status`** — the resident watchdog, no cron needed. `start` spawns a daemon
   that checks for due tasks every 300 s (default; `--interval <s>` to change) and launches them
   as detached runners (capped by `FL_MAX_CONCURRENCY`, default 2). `stop` stops it; `status`
@@ -173,20 +189,21 @@ creates the data dirs and the worker-local state configuration.
   launch anything. Run these on the worker box.
 
 - **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, skill-copy
-  completeness (bin/ and src/ present), old-scheme leftover detection (a `schedule-task` on
-  PATH that is not this skill's own copy — npm global or `~/.local/bin` symlink; advises
-  removal by hand, never deletes), machine identity, data-dir completeness.
+  completeness (bin/ and src/ present), the runtime CLI (a `schedule-task` on PATH that is the
+  npm global install, and whether its version matches the skill copy), `~/.local/bin` symlink
+  leftovers (advises removal by hand, never deletes), machine identity, data-dir completeness,
+  and the data schema version (`CLI vX · data schema vY`).
 
-- **`version`** — print this skill copy's version (from `package.json` next to this CLI).
-  Run it from each installed copy to tell which version it is — handy when several copies
-  or old leftovers exist on a machine.
+- **`version`** — print the CLI version (from `package.json` next to this CLI). Handy for
+  telling installs apart and for the version line in `status`/`doctor`
+  (`CLI vX · data schema vY`).
 
 - **anything else** → try the create flow guidance for `dev`, or `help`/`--help` for the
   command list.
 
 ## Flow: DEV  (author) — DISCUSS → DRAFT → REVIEW → COMMIT  (create one *or many* tasks)
 
-Start with `node <skill-dir>/bin/schedule-task.js dev` (it gates the current batch). Then:
+Start with `schedule-task dev` (it gates the current batch). Then:
 
 ### 1. DISCUSS  (interview — do NOT skip)
 
@@ -222,8 +239,8 @@ Ask, one at a time, only what you cannot infer from the repo/context:
   collisions against `.schedule-tasks-data/tasks/*.json` — and against the other ids you're
   minting this pass.
 - Ensure `templates/` are present in `.schedule-tasks-data/templates/` (run
-  `node <skill-dir>/bin/schedule-task.js audit` once, or copy them by hand) — the harness
-  prompts reference `harness-common.md` from there.
+  `schedule-task audit` once, or copy them by hand) — the harness prompts reference
+  `harness-common.md` from there.
 - Write `.schedule-tasks-data/prompts/<id>.md` from `templates/dev-plan-harness.md` (next to
   this SKILL.md), filling **every** `<...>` slot and the `$id` markers. The harness contains the
   **development report** and **merge protocol** requirements — keep them verbatim.
@@ -290,7 +307,7 @@ Then remind the user:
 
 1. Confirm the batch is fully `dev-done`: `git fetch && schedule-task status` (every dev task
    shows `dev-done`).
-2. Run `node <skill-dir>/bin/schedule-task.js audit` — choose the mode and granularity with the
+2. Run `schedule-task audit` — choose the mode and granularity with the
    user (defaults: `--edit --per-task`). It creates the audit envelope(s) + prompt(s):
    - agent = the OPPOSITE of the developer's (claude ⇄ kimi) — another mind reviewing the work;
    - `depends_on` = the dev task(s) under audit, so audits run after the dev work lands;
@@ -307,7 +324,7 @@ Then remind the user:
 
 ## Flow: ARCHIVE  (author) — closes the current batch
 
-- `node <skill-dir>/bin/schedule-task.js archive` — every member must be terminal
+- `schedule-task archive` — every member must be terminal
   (`dev-done`/`audit-pass`/`audit-fail`/`merge-failed`/`failed`/`cancelled`). It writes the
   batch summary report (outcomes + Follow-ups), archives the manifest + envelopes + prompts,
   pushes, and empties the current batch. The author's agent may fill the Follow-ups section
@@ -348,7 +365,7 @@ Then remind the user:
 
 - **node ≥ 18** + **git** are the only hard requirements. The CLI is a zero-dependency Node
   program: no jq (JSON.parse), no GNU date (Date), no tmux (detached process groups), no flock
-  (pid lock files). `claude`/`kimi` are needed on the worker. `node <skill-dir>/bin/schedule-task.js doctor` checks all
+  (pid lock files). `claude`/`kimi` are needed on the worker. `schedule-task doctor` checks all
   of this.
 - **graphify (optional)** — knowledge-graph queries for executors (`graphify query` /
   `graphify update`), ~8x cheaper than reading source files. `init`/`doctor` only **detect** the

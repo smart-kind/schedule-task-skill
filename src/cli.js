@@ -76,6 +76,11 @@ Commands:
       envelopes + prompts to archive/, pushes. Ends the batch.
   log <id> [-f]
       Tail a task's run log (replaces the old tmux attach).
+  migrate
+      Upgrade the committed data schema (.schedule-tasks-data/version) to this
+      CLI's schema. Deterministic: commit the current state first, then run —
+      rollback is a git revert. Write commands hard-stop until the data schema
+      matches the CLI; read commands keep working with a warning.
   doctor
       Environment check: node/git/claude/kimi/graphify, skill-copy completeness,
       old-scheme leftovers, machine identity, data dirs.
@@ -130,8 +135,27 @@ async function main(argv) {
   const repo = core.resolveRepo(cliRepo, process.cwd());
   const config = core.readConfig();
 
+  // Schema gate (refactor plan §5.2): data schema newer than the CLI → refuse
+  // every gated command; older → read commands warn and continue, write commands
+  // hard-stop until `schedule-task migrate` has run. init/update/self-test/
+  // help/version manage the install or the version file themselves.
+  const schema = core.schemaCheck(repo);
+  const gate = (write) => {
+    if (schema.status === 'cli-too-old') {
+      return { err: `data schema v${schema.data} is newer than this CLI (schema v${core.SCHEMA_VERSION}) — upgrade the CLI first: install.sh --update` };
+    }
+    if (schema.status === 'migrate-needed') {
+      const msg = `data schema v${schema.data} is older than this CLI (schema v${core.SCHEMA_VERSION}) — run \`schedule-task migrate\``;
+      return write ? { err: msg } : { warn: msg };
+    }
+    return {};
+  };
+
   if (!command) {
     // The most frequent action: query status in the current repo.
+    const g = gate(false);
+    if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
+    if (g.warn) console.error(`schedule-task: ${g.warn}`);
     const { render, detectMode } = require('./status.js');
     const autoRoot = config.autoRoot || core.dataDir(repo);
     const logRoot = config.logRoot || core.logRoot(repo, config);
@@ -155,6 +179,9 @@ async function main(argv) {
       if (flags['--self-test']) {
         return selfTest() ? 0 : 1;
       }
+      const g = gate(false);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
+      if (g.warn) console.error(`schedule-task: ${g.warn}`);
       const autoRoot = config.autoRoot || core.dataDir(repo);
       const logRoot = config.logRoot || core.logRoot(repo, config);
       const mode = config.mode || detectMode({ autoRoot, logRoot, mode: '' });
@@ -184,6 +211,8 @@ async function main(argv) {
       }
     }
     case 'run': {
+      const g = gate(true);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
       const id = args[0];
       if (!id) {
         console.error('usage: schedule-task run <id>');
@@ -194,6 +223,9 @@ async function main(argv) {
       return result.status === 'dev-done' || result.status === 'audit-pass' ? 0 : 1;
     }
     case 'dev': {
+      const g = gate(false);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
+      if (g.warn) console.error(`schedule-task: ${g.warn}`);
       // Gate: one batch at a time. Refuse to open a NEW batch while a batch is
       // still open — the author must close it with `archive` first.
       const batch = core.currentBatch(repo);
@@ -208,12 +240,16 @@ async function main(argv) {
       return 0;
     }
     case 'audit': {
+      const g = gate(true);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
       const { audit } = require('./audit.js');
       const mode = flags['--readonly'] ? 'readonly' : 'edit';
       const perTask = !flags['--batch'];
       return audit({ repo, mode, perTask }).exit;
     }
     case 'cancel': {
+      const g = gate(true);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
       const { cancel } = require('./cancel.js');
       const target = args[0];
       if (!target || (target !== '--all' && target.startsWith('-'))) {
@@ -225,10 +261,15 @@ async function main(argv) {
       return r.exit;
     }
     case 'archive': {
+      const g = gate(true);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
       const { archive } = require('./archive.js');
       return archive({ repo, batchId: args[0] }).exit;
     }
     case 'log': {
+      const g = gate(false);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
+      if (g.warn) console.error(`schedule-task: ${g.warn}`);
       const { tailLog } = require('./log.js');
       const id = args[0];
       if (!id) {
@@ -238,8 +279,15 @@ async function main(argv) {
       return tailLog({ repo, id, follow: Boolean(flags['-f']), config });
     }
     case 'doctor': {
+      const g = gate(false);
+      if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
+      if (g.warn) console.error(`schedule-task: ${g.warn}`);
       const { doctor } = require('./doctor.js');
       return doctor({ repo });
+    }
+    case 'migrate': {
+      const { migrate } = require('./migrate.js');
+      return migrate({ repo }).exit;
     }
     case 'update': {
       // Real update: pull the recorded source (or clone the repo) and re-copy

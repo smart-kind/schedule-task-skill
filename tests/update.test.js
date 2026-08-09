@@ -48,12 +48,14 @@ function installCopy(src, home, platform) {
   return dest;
 }
 
-function runUpdate(home, copy) {
+function runUpdate(home, copy, npmPrefix) {
   return spawnSync(process.execPath, [path.join(copy, 'bin', 'schedule-task.js'), 'update'], {
-    env: { ...process.env, HOME: home },
+    // npm_config_prefix routes `npm install -g` (the tool layer) into a temp
+    // prefix so the test never touches the real machine's global packages.
+    env: { ...process.env, HOME: home, npm_config_prefix: npmPrefix },
     encoding: 'utf8',
     cwd: os.tmpdir(), // deliberately not inside the source
-    timeout: 60000,
+    timeout: 120000,
   });
 }
 
@@ -64,14 +66,18 @@ test('update refreshes the running copy to the latest source version', () => {
     const home = path.join(t, 'home');
     const copy = installCopy(src, home, '.agents');
     setVersion(src, '9.9.10'); // the source moves on
+    const npmPrefix = path.join(t, 'npm-prefix');
 
-    const r = runUpdate(home, copy);
+    const r = runUpdate(home, copy, npmPrefix);
     assert.equal(r.status, 0, r.stderr);
 
     const pkg = JSON.parse(fs.readFileSync(path.join(copy, 'package.json'), 'utf8'));
     assert.equal(pkg.version, '9.9.10'); // the running copy itself was replaced
     assert.equal(fs.existsSync(path.join(copy, '.git')), false); // still a clean copy
     assert.equal(fs.existsSync(path.join(copy, '.installed-from')), true); // still marked
+    // Tool layer: the global CLI was refreshed into the temp npm prefix.
+    const gpkg = JSON.parse(fs.readFileSync(path.join(npmPrefix, 'lib', 'node_modules', 'schedule-task', 'package.json'), 'utf8'));
+    assert.equal(gpkg.version, '9.9.10', 'global CLI refreshed via npm install -g');
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }
@@ -85,14 +91,17 @@ test('update (re)installs into every detected platform on the machine', () => {
     installCopy(src, home, '.agents'); // existing copy — refreshed in place
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true }); // detected, no copy yet
     setVersion(src, '9.9.11');
+    const npmPrefix = path.join(t, 'npm-prefix');
 
-    const r = runUpdate(home, path.join(home, '.agents', 'skills', 'schedule-task'));
+    const r = runUpdate(home, path.join(home, '.agents', 'skills', 'schedule-task'), npmPrefix);
     assert.equal(r.status, 0, r.stderr);
 
     for (const plat of ['.agents', '.claude']) {
       const pkg = JSON.parse(fs.readFileSync(path.join(home, plat, 'skills', 'schedule-task', 'package.json'), 'utf8'));
       assert.equal(pkg.version, '9.9.11', `${plat} copy updated`);
     }
+    const gpkg = JSON.parse(fs.readFileSync(path.join(npmPrefix, 'lib', 'node_modules', 'schedule-task', 'package.json'), 'utf8'));
+    assert.equal(gpkg.version, '9.9.11', 'global CLI refreshed on re-install');
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }
