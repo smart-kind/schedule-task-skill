@@ -98,7 +98,7 @@ The rule (`src/core.js` `schemaCheck`, compared against the CLI's compile-time `
 - data **<** CLI → legacy/stale: `status`/`doctor` warn and keep working; write commands
   (`run`/`audit`/`cancel`/`archive`) hard-stop with a hint to run `schedule-task migrate`.
 - data **>** CLI → the CLI is too old to read the data safely: refuse and upgrade the CLI
-  (`install.sh --update`).
+  (re-run install.sh).
 - equal → normal operation.
 
 `migrate` is deterministic (no AI) — commit the current state first, run it, and rollback is a

@@ -19,11 +19,11 @@ require('../src/dispatch.js');
 require('../src/doctor.js');
 require('../src/git.js');
 require('../src/init.js');
+require('../src/install.js');
 require('../src/log.js');
 require('../src/migrate.js');
 require('../src/runner.js');
 require('../src/status.js');
-require('../src/update.js');
 require('../src/watchdog.js');
 
 const { main } = require('../src/cli.js');

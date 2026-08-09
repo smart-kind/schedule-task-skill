@@ -15,7 +15,7 @@ function migrate({ repo }) {
   if (check.status === 'cli-too-old') {
     console.error(
       `migrate: data schema v${check.data} is NEWER than this CLI (schema v${core.SCHEMA_VERSION}) — ` +
-      'upgrade the CLI first: install.sh --update'
+      'upgrade the CLI first: re-run install.sh'
     );
     return { exit: 1 };
   }

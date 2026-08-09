@@ -168,9 +168,15 @@ How the code is shipped (independent of the trigger/driver layers above) — see
 
 | Layer | Content | Where | Updated by |
 |---|---|---|---|
-| Knowledge | SKILL.md, references/, templates/ (`bin/`+`src/` reference-only) | each agent's `skills/schedule-task` — real copies, no symlinks | `install.sh` |
-| Tool | the whole CLI (`bin/`+`src/`) | **one** npm-global install per machine (`npm install -g`) | `install.sh` / `schedule-task update` |
+| Knowledge | SKILL.md, references/, templates/ (**zero code**) | each agent's `skills/schedule-task` — copied from the global CLI package, whole-dir overwrite | `schedule-task install` |
+| Tool | the whole CLI (`bin/`+`src/` **plus the knowledge three**) | **one** npm-global install per machine — a self-contained tarball copy, never a symlink (`npm install -g`) | `install.sh` |
 | Data | `.schedule-tasks-data/` (tasks/prompts/reports/batches/state/hooks + `version`) | per project, committed with git | CLI (`init`/`migrate`) + task runs |
+
+Three separate chains, no `update` subcommand: **install** (`install.sh` → global CLI) and
+**bind** (`schedule-task install` → knowledge copies) are two distinct steps, and both are
+refreshed by re-running themselves (install.sh replaces the global CLI; install whole-dir
+overwrites the skill dirs, cleaning any old-form code residue). The knowledge source is the
+global package itself — `install` needs no network and no clone.
 
 **Program version vs data schema.** `package.json` version (`CLI vX`) bumps on any code change;
 `.schedule-tasks-data/version` (`data schema vY`) is the envelope/prompt/report/state format

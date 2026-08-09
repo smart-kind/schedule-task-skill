@@ -71,6 +71,10 @@ Git 当邮差。作者只关心 dev 分支上东西齐不齐，从不关心任�
 每台要参与这台系统的机器（无论作者还是执行者），都要先跑一次 **init** 登记身份。
 同一个命令，选的角色不同，后续做的事情就不同。
 
+> 前置：这台机器要先装好全局命令 `schedule-task`（跑 install.sh，工具层）并把技能绑定到
+> agent（跑 `schedule-task install`，知识层）——两步安装的细节见
+> `docs/refactor-three-layer-separation.md`。本节的 init 管的是数据层（每项目一份）。
+
 ![初始化流程](diagrams/init-flow.svg)
 
 流程要点：
@@ -256,8 +260,8 @@ schedule-task archive
 | `cancel` | 叫停 | 取消排队/运行中的任务，连带取消它的依赖者，保留现场 |
 | `log` | 直播窗口 | 实时查看某个任务正在干嘛 |
 | `migrate` | 数据格式升级 | 把项目里 `.schedule-tasks-data/version` 升到当前 CLI 的 schema；写命令在数据未迁移时会硬停并提示先跑它 |
-| `doctor` | 体检 | 检查环境齐不齐、身份登记没登记、运行时 CLI 对不对（npm 全局 + 版本匹配）、有没有 `~/.local/bin` 旧软链接残留、数据 schema 版本 |
-| `update` | 自我升级 | 拉取最新源码，重装全局 CLI（`npm install -g`）和所有平台技能副本 |
+| `doctor` | 体检 | 检查环境齐不齐、身份登记没登记、全局 CLI 包完整（bin/src + 知识三项）、已绑定技能目录（知识三项在、且不含代码，发现旧形态残留会提示重跑 install）、运行时 CLI 对不对（npm 全局 + 版本匹配）、有没有 `~/.local/bin` 旧软链接残留、数据 schema 版本 |
+| `install` | 绑定知识 | 把知识三项（SKILL.md / references/ / templates/，零代码）从全局 CLI 包拷进各 agent 的 `skills/schedule-task`（整目录覆盖、幂等，自动清掉旧代码残留）；更新 = 重跑它 + 重跑 install.sh |
 | `version` | 报版本 | 打印 CLI 版本号（就是 `status`/`doctor` 版本行里的那个 X） |
 | `self-test` | 自检 | 跑一遍内置测试，确认系统没坏 |
 | `help` / `--help` | 帮助 | 命令清单 |
@@ -273,7 +277,7 @@ schedule-task archive
 | `watchdog.js` / `dispatch.js` | 看门狗（见上）；dispatch 是看门狗内部的"该派谁"判定 |
 | `status.js` | 进度看板（见上） |
 | `audit.js` / `archive.js` / `cancel.js` | 发起审查 / 关批次 / 叫停（见上） |
-| `init.js` / `log.js` / `doctor.js` / `update.js` | 登记 / 直播 / 体检 / 升级（见上） |
+| `init.js` / `install.js` / `log.js` / `doctor.js` | 登记 / 绑定知识 / 直播 / 体检（见上） |
 
 ---
 

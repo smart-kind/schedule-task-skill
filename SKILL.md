@@ -55,17 +55,30 @@ Everything here is agent-neutral: tasks are executed by the coding agent CLI con
 
 ## Prerequisite
 
-One command installs everything on a machine: **`./install.sh`** (run in a clone of the repo, or
-the `curl -fsSL <raw install.sh URL> | bash` one-liner). It installs **three layers**
-(see `docs/refactor-three-layer-separation.md` in the repo):
+Two steps install the system on a machine (see `docs/refactor-three-layer-separation.md` in the
+repo for the design):
 
-- **Tool layer — the global CLI.** `npm install -g` puts the **`schedule-task`** command on
-  PATH. This is the runtime: **invoke it as `schedule-task <subcommand>`** from any repo. One
-  copy per machine — no code duplication, no version drift between machines.
-- **Knowledge layer — this skill.** `install.sh` copies the skill into each agent's skills dir
-  (`~/.agents`, `~/.claude`, `~/.kimi-code`) as plain copies — SKILL.md/references/templates,
-  plus `bin/`+`src/` **as reference only** (they are NOT the runtime). `.git` and
-  `graphify-out/` are stripped, and a `.installed-from` marker records the source.
+1. **Tool layer — the global CLI (one command):**
+
+   ```
+   curl -fsSL <raw install.sh URL> | bash
+   ```
+
+   (or `./install.sh` inside a clone). It does `npm install -g` from a self-contained tarball
+   and puts the **`schedule-task`** command on PATH. This is the runtime: **invoke it as
+   `schedule-task <subcommand>`** from any repo. One copy per machine — no code duplication,
+   no version drift. Re-running it replaces the global CLI (that is how you update the tool).
+2. **Knowledge layer — bind this skill into each agent:**
+
+   ```
+   schedule-task install --target all
+   ```
+
+   copies the **knowledge three — SKILL.md / references/ / templates/, zero code** — from the
+   global CLI package into each installed agent's `skills/schedule-task` (`~/.kimi-code`,
+   `~/.claude`, `~/.agents`). Whole-dir overwrite: re-running it refreshes the skill and
+   automatically cleans any old-form code residue. A `.installed-from` marker records the
+   source CLI version + time.
 - **Data layer — per project.** `.schedule-tasks-data/` lives in each repo, created by
   `schedule-task init`, committed with git.
 
@@ -75,8 +88,10 @@ the repo you're working in, run `schedule-task init` first (below) — it create
 the worker-local state configuration, and the committed data schema version
 (`.schedule-tasks-data/version`).
 
-**Updating later:** the developer improves the repo → pushes a release → every machine runs
-`./install.sh --update` (or `schedule-task update`) to refresh the global CLI + skill copies.
+**Updating later:** the developer improves the repo → pushes a release → every machine re-runs
+the `curl -fsSL <raw install.sh URL> | bash` one-liner (replaces the global CLI) and
+`schedule-task install --target all` (refreshes the bound skills — idempotent). There is **no
+`update` subcommand**.
 Data migration after an upgrade is per-project and AI-assisted: `status`/`doctor` warn when
 `.schedule-tasks-data/version` is older than the CLI (`CLI vX · data schema vY`); write commands
 (`run`/`audit`/`cancel`/`archive`) **hard-stop** with a hint to run **`schedule-task migrate`**
@@ -151,11 +166,13 @@ first (commit first — rollback is a git revert).
      the login startup). Remind the user: `.schedule-tasks-data/state/` stays local to the worker
      (gitignored); it is the worker-local truth and never crosses git.
 
-- **`update`** — refresh the whole installation to the latest source, right from the copy: it
-  pulls the source recorded in `.installed-from` (or clones the repo when there is no recorded
-  source), re-runs `npm install -g` for the global CLI, and `install.sh --update` to re-copy
-  every platform's skill dir on this machine. It does **not** remove a `~/.local/bin/schedule-task`
-  symlink leftover — clean that up by hand.
+- **`install [-t, --target <ids>] [-y, --yes]`** — bind the knowledge layer into an agent:
+  copy SKILL.md / references/ / templates/ (zero code) from the global CLI package into each
+  chosen platform's `skills/schedule-task` (`kimi-code` / `claude` / `agents`). Whole-dir
+  overwrite — idempotent, and it cleans up old-form code residue automatically. With no flags
+  it asks which platform(s); `--target all` / `--target auto` / `-y` (non-interactive) = every
+  detected platform. There is **no `update` subcommand** — updating is re-running install.sh
+  (a new install replaces the global CLI) plus this command again.
 
 - **`archive [<batch-id>]`** — AUTHOR-side batch close-out (default: the current batch). Every
   member (dev + audit) must be terminal. Writes a batch summary report
@@ -188,11 +205,13 @@ first (commit first — rollback is a git revert).
   shows whether it is alive and what the last check did. Only machines with `role=worker`
   launch anything. Run these on the worker box.
 
-- **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, skill-copy
-  completeness (bin/ and src/ present), the runtime CLI (a `schedule-task` on PATH that is the
-  npm global install, and whether its version matches the skill copy), `~/.local/bin` symlink
-  leftovers (advises removal by hand, never deletes), machine identity, data-dir completeness,
-  and the data schema version (`CLI vX · data schema vY`).
+- **`doctor`** — environment health check: node/git/claude/kimi/graphify presence, the global
+  CLI package completeness (bin + src + SKILL.md + references/ + templates/), each bound skill
+  dir (knowledge three present, no code residue — an old-form copy containing bin/src is
+  flagged with a hint to re-run `install`), the runtime CLI (a `schedule-task` on PATH that is
+  the npm global install, and whether its version matches the CLI package), `~/.local/bin`
+  symlink leftovers (advises removal by hand, never deletes), machine identity, data-dir
+  completeness, and the data schema version (`CLI vX · data schema vY`).
 
 - **`version`** — print the CLI version (from `package.json` next to this CLI). Handy for
   telling installs apart and for the version line in `status`/`doctor`

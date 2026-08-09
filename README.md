@@ -47,15 +47,16 @@ is gone. `jq` is JSON.parse, GNU date is `Date`, tmux sessions are detached proc
 
 The install is **three-layer separated** (see `docs/refactor-three-layer-separation.md`): the
 CLI is installed **once per machine** as a global command by `install.sh` (`npm install -g`),
-the skill copies are knowledge (SKILL.md/references/templates, `bin/`+`src/` reference-only),
-and `.schedule-tasks-data/` is per-project data. The CLI runs the same everywhere:
+the skill is bound into each agent as knowledge (SKILL.md/references/templates, **zero code**)
+by `schedule-task install`, and `.schedule-tasks-data/` is per-project data. The CLI runs the
+same everywhere:
 
 ```bash
 schedule-task --help      # every command
 schedule-task doctor      # env health check (node/git/claude/kimi/graphify) — prints CLI vX · data schema vY
 schedule-task self-test   # run the node:test suite
 schedule-task version     # the CLI version
-schedule-task update      # refresh the whole install to the latest source
+schedule-task install     # bind the knowledge layer (the skill) into an agent
 ```
 
 `schedule-task <cmd>` is the same command on every machine — no per-copy invocation, no version
@@ -63,75 +64,59 @@ drift between installs.
 
 ## Install
 
-Pick your install path:
+Two steps — one installs the tool, the other binds the knowledge. There is no `update`
+subcommand: re-running these two commands is how you update.
 
-- **At a terminal and want to read the source** → **Option A**
-- **Want an AI agent to install or update it for you** → **Option B** (send your agent this exact prompt: `Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions. If the skill is already installed here, run install.sh with --update to refresh it.`)
-- **At a terminal, one-liner only** → **Option C**
-
-**Option A — clone then install** (if you want to read the source):
+**Step 1 — the global CLI (one command, once per machine):**
 
 ```bash
-git clone https://github.com/smart-kind/schedule-task-skill ~/schedule-task
-cd ~/schedule-task
-./install.sh            # add --dry-run to preview, --yes to skip prompts
-```
-
-**Option B — let an AI agent install it for you.** In your agent (Kimi Code, Claude Code,
-Codex, …), say:
-
-> Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions. If the skill is already installed here, run install.sh with `--update` to refresh it.
-
-When your agent receives the prompt above, it automatically reads this README, fetches
-`install.sh`, detects its own platform, and runs it with the matching `--platform` flag (plus
-`--update` when the skill is already installed, so existing copies are refreshed instead of
-skipped) — no clone, no inspection, no interactive answers, and no need for you to say what
-you are on. A human at a terminal instead uses the pipe form in Option C.
-
-**Option C — manual install / update, one curl command** (public repo; the script clones itself):
-
-```bash
-# install (or refresh the source) — copies into the detected platforms:
+# at a terminal, from a public repo:
 curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash
-
-# update an existing install (refresh the global CLI + replace the installed copies):
-curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash -s -- --update
+# or, for development, from a clone of the repo:
+./install.sh            # add --dry-run to preview
 ```
+
+install.sh does `npm install -g` from a self-contained tarball (a real copy, never a symlink to
+the source), putting the `schedule-task` command on PATH. **That is all it does** — it does not
+touch any agent's skills dir, and it has no `--platform` concept. Re-running it replaces the
+global CLI.
+
+**Step 2 — bind the skill into each agent (the knowledge layer, zero code):**
+
+```bash
+schedule-task install --target all
+```
+
+This copies **SKILL.md / references/ / templates/** — and nothing else — from the global CLI
+package into each installed platform's `skills/schedule-task` (`~/.kimi-code`, `~/.claude`,
+`~/.agents`). Whole-dir overwrite: idempotent, and it automatically cleans up old-form code
+residue. A `.installed-from` marker records the source CLI version + time.
+
+**Have an AI agent install it for you.** In your agent (Kimi Code, Claude Code, Codex, …), say:
+
+> Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions. If it is already installed, re-run install.sh and `schedule-task install --target all` to refresh it.
 
 ### install.sh flags
 
 | Flag | Meaning |
 |---|---|
-| `--platform=kimi-code,claude,agents` (or `all`) | Which agent platform(s) to install the skill into. For unattended/AI installs pass exactly the platform the script runs under — no prompts. |
-| `--yes` | Skip all prompts (installs into every detected platform when `--platform` is absent). |
 | `--dry-run` | Print what would happen without changing anything. |
-| `--update` | Refresh the source, re-run `npm install -g` for the global CLI, and re-copy the skill dirs (replacing installed copies in place). |
 
-With no flags and a terminal, `install.sh` asks which platform(s) to use. Then it:
-
-1. **Installs the global CLI** — `npm install -g <source>` puts the `schedule-task` command on
-   PATH (tool layer, once per machine).
-2. **Copies the skill** into each chosen platform's skills dir — a plain user-level copy, no
-   symlinks (the same layout works on macOS and a VPS): `~/.kimi-code/skills/schedule-task`,
-   `~/.claude/skills/schedule-task`, `~/.agents/skills/schedule-task`. `.git` and
-   `graphify-out/` are stripped from each copy, and a `.installed-from` marker records the
-   source. These are knowledge copies — the runtime is the global CLI from step 1.
+That is the only flag — platform selection and skill binding are `schedule-task install`'s job.
 
 **Update later:** edit the skill source repo, commit and release, then on each machine re-run
-`./install.sh --update` in a source checkout, use the `--update` curl one-liner in Option C, or
-run `schedule-task update` from any installed copy (it pulls the latest source, refreshes the
-global CLI with `npm install -g`, and re-copies every platform's skill dir). A `~/.local/bin`
-symlink leftover from older versions is never silently converted: install prints a hint
-(`use --update`, or delete the symlink by hand and reinstall).
+the Step 1 one-liner (replaces the global CLI) and `schedule-task install --target all`
+(refreshes the bound skills — idempotent). A `~/.local/bin/schedule-task` symlink leftover from
+older versions is never touched by the CLI — remove it by hand at your convenience.
 
 ### Per-tool notes
 
-- **Kimi Code** and **Codex** natively scan `~/.agents/skills/` (user-level) — pick `agents`
-  when asked (or `kimi-code`, Kimi Code's own dir).
-- **Claude Code** does not read `.agents/skills/` — it only loads `~/.claude/skills/`, so pick
+- **Kimi Code** and **Codex** natively scan `~/.agents/skills/` (user-level) — pass `agents`
+  (or `kimi-code`, Kimi Code's own dir).
+- **Claude Code** does not read `.agents/skills/` — it only loads `~/.claude/skills/`, so pass
   `claude` for it.
-- You can install into several platforms on the same machine; each gets its own independent
-  copy (no shared links, so nothing breaks when paths differ across machines).
+- You can bind into several platforms on the same machine; each gets its own independent copy
+  (no shared links, so nothing breaks when paths differ across machines).
 
 ## Quickstart
 
@@ -172,10 +157,10 @@ symlink leftover from older versions is never silently converted: install prints
 
 ```
 schedule-task/
-├── SKILL.md                  # the skill: status (default) / dev / audit / archive / init / watchdog / cancel / log / migrate / doctor / update / version
+├── SKILL.md                  # the skill: status (default) / dev / audit / archive / init / watchdog / cancel / log / migrate / doctor / install / version
 ├── README.md                 # this file
 ├── package.json              # zero runtime deps; bin → bin/schedule-task.js; npm test
-├── install.sh                # three-layer install: global CLI (npm install -g) + knowledge skill copies
+├── install.sh                # tool layer only: global CLI via npm pack + npm install -g
 ├── bin/schedule-task.js      # CLI launcher (shebang; everything is in src/)
 ├── src/                      # the whole runtime — one module per concern
 │   ├── cli.js                # command table + arg parsing + help
@@ -190,6 +175,7 @@ schedule-task/
 │   ├── cancel.js             # cancel + cascade + process-group kill
 │   ├── archive.js            # AUTHOR-side batch close-out (summary + archive/)
 │   ├── init.js               # per-repo setup + automation/ migration
+│   ├── install.js            # bind the knowledge layer (SKILL.md/references/templates) into an agent
 │   ├── log.js                # `log <id> [-f]` — tail a run log
 │   ├── migrate.js            # deterministic data-schema upgrade (stamps .schedule-tasks-data/version)
 │   └── doctor.js             # environment health check
@@ -227,12 +213,12 @@ Two version numbers are managed separately:
 - **Data schema** (`.schedule-tasks-data/version`, printed as `data schema vY`) — the format
   contract of `envelope`/`prompt`/`report`/`state`. Bumps only when the data formats change.
 
-`status`/`doctor` print both on one line (`CLI v3.1.0 · data schema v1`). The rule is:
+`status`/`doctor` print both on one line (`CLI v3.2.0 · data schema v1`). The rule is:
 
 - data schema **<** CLI schema → **needs `schedule-task migrate`** (read commands warn and keep
   working; write commands `run`/`audit`/`cancel`/`archive` **hard-stop** with a migrate hint).
 - data schema **>** CLI schema → the CLI is too old; refuse and upgrade the CLI
-  (`install.sh --update`).
+  (re-run install.sh).
 - equal → normal operation.
 
 `migrate` is deterministic (no AI): it upgrades the committed schema version in place. Commit the

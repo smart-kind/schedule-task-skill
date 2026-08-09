@@ -1,14 +1,14 @@
 'use strict';
 // cli.js — command table and arg parsing for the schedule-task CLI.
 // One binary, every runtime concern: init / status / dev / audit / run / cancel /
-// archive / log / doctor / update / self-test.
+// archive / log / doctor / install / self-test.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const core = require('./core.js');
 
-const VALUE_FLAGS = new Set(['--repo', '-r', '--role', '--id', '--interval']);
+const VALUE_FLAGS = new Set(['--repo', '-r', '--role', '--id', '--interval', '--target', '-t']);
 
 function parseArgs(argv) {
   const out = { repo: null, command: null, args: [], flags: {} };
@@ -82,13 +82,16 @@ Commands:
       rollback is a git revert. Write commands hard-stop until the data schema
       matches the CLI; read commands keep working with a warning.
   doctor
-      Environment check: node/git/claude/kimi/graphify, skill-copy completeness,
-      the runtime CLI (npm-global \`schedule-task\` + version match), ~/.local/bin
+      Environment check: node/git/claude/kimi/graphify, global CLI package
+      completeness (bin + src + SKILL.md + references/ + templates/), the bound
+      skill dirs (knowledge three present, no code residue), ~/.local/bin
       symlink leftovers, machine identity, data dirs, data schema version.
-  update
-      Refresh the whole installation: pull the latest source, re-run npm install
-      -g for the global CLI, and re-copy every installed platform copy
-      (equivalent to ./install.sh --update).
+  install [-t, --target <ids>] [-y, --yes]
+      Bind the KNOWLEDGE layer into an agent: copy SKILL.md/references/templates
+      (zero code) from the global CLI package into each chosen platform's
+      skills/schedule-task (kimi-code / claude / agents). Whole-dir overwrite —
+      idempotent, cleans up old-form code residue. Default: interactive pick;
+      --target all|auto (or -y) = every detected platform.
   self-test
       Run the full node:test suite (same as \`npm test\`).
   version
@@ -139,12 +142,12 @@ async function main(argv) {
 
   // Schema gate (refactor plan §5.2): data schema newer than the CLI → refuse
   // every gated command; older → read commands warn and continue, write commands
-  // hard-stop until `schedule-task migrate` has run. init/update/self-test/
+  // hard-stop until `schedule-task migrate` has run. init/install/self-test/
   // help/version manage the install or the version file themselves.
   const schema = core.schemaCheck(repo);
   const gate = (write) => {
     if (schema.status === 'cli-too-old') {
-      return { err: `data schema v${schema.data} is newer than this CLI (schema v${core.SCHEMA_VERSION}) — upgrade the CLI first: install.sh --update` };
+      return { err: `data schema v${schema.data} is newer than this CLI (schema v${core.SCHEMA_VERSION}) — upgrade the CLI first: re-run install.sh` };
     }
     if (schema.status === 'migrate-needed') {
       const msg = `data schema v${schema.data} is older than this CLI (schema v${core.SCHEMA_VERSION}) — run \`schedule-task migrate\``;
@@ -291,11 +294,12 @@ async function main(argv) {
       const { migrate } = require('./migrate.js');
       return migrate({ repo }).exit;
     }
-    case 'update': {
-      // Real update: pull the recorded source (or clone the repo) and re-copy
-      // every platform's skill dir via that source's install.sh --update.
-      const { update } = require('./update.js');
-      return update();
+    case 'install': {
+      const { install } = require('./install.js');
+      return install({
+        targets: flags['--target'] || flags['-t'] || undefined,
+        yes: Boolean(flags['--yes'] || flags['-y']),
+      });
     }
     case 'self-test': {
       const root = core.skillRoot();

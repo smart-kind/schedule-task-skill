@@ -57,6 +57,50 @@ test('help prints the command list', async () => {
   assert.doesNotMatch(text, /merge-batch/);
 });
 
+test('help lists install and no longer lists update', async () => {
+  const out = [];
+  const orig = process.stdout.write;
+  process.stdout.write = (s) => { out.push(String(s)); return true; };
+  try {
+    const code = await main(['help']);
+    assert.equal(code, 0);
+  } finally {
+    process.stdout.write = orig;
+  }
+  const text = out.join('');
+  assert.match(text, /^ {2}install /m, 'install is a command');
+  assert.doesNotMatch(text, /^ {2}update$/m, 'update is gone');
+});
+
+test('parseArgs: install --target / -t value flags and --yes', () => {
+  const p = parseArgs(['install', '-t', 'claude,agents', '--yes']);
+  assert.equal(p.command, 'install');
+  assert.equal(p.flags['-t'], 'claude,agents');
+  assert.equal(p.flags['--yes'], true);
+  const q = parseArgs(['install', '--target=all']);
+  assert.equal(q.flags['--target'], 'all');
+  assert.equal(q.command, 'install');
+});
+
+test('install with an unknown --target platform is rejected', async () => {
+  const t = helpers.tmpdir();
+  try {
+    const errs = [];
+    const origErr = process.stderr.write;
+    process.stderr.write = (s) => { errs.push(String(s)); return true; };
+    let code;
+    try {
+      code = await main(['install', '--target', 'bogus', '-r', t]);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    assert.equal(code, 2, 'unknown platform must exit 2');
+    assert.match(errs.join(''), /unknown platform 'bogus'/);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
 test('dev refuses to open a new batch while one is open', async () => {
   const t = helpers.tmpdir();
   try {

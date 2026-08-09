@@ -76,7 +76,7 @@ test('doctor flags a stale npm-global CLI whose version does not match the skill
     fs.symlinkSync(real, path.join(pfx, 'bin', 'schedule-task'));
     const r = runDoctor({ PATH: `${path.join(pfx, 'bin')}:${process.env.PATH}` });
     assert.match(r.stdout, /does not match/);
-    assert.match(r.stdout, /install\.sh --update/);
+    assert.match(r.stdout, /re-run install\.sh/);
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }
@@ -92,6 +92,47 @@ test("doctor does not flag this skill's own copy when it is on PATH", () => {
     fs.symlinkSync(path.join(__dirname, '..', 'bin', 'schedule-task.js'), path.join(myBin, 'schedule-task'));
     const r = runDoctor({ PATH: `${myBin}:${path.dirname(process.execPath)}:/usr/bin:/bin` });
     assert.doesNotMatch(r.stdout, /leftover/);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('doctor flags old-form code residue in a bound skill dir and hints to re-run install', () => {
+  // A bound skill dir holding bin/src/package.json is an old-form full copy
+  // (previous install scheme) — `schedule-task install` whole-dir overwrite
+  // cleans it; doctor must flag it.
+  const t = h.tmpdir('schedtask-doctor-');
+  try {
+    const home = path.join(t, 'home');
+    const dest = path.join(home, '.agents', 'skills', 'schedule-task');
+    fs.mkdirSync(path.join(dest, 'references'), { recursive: true });
+    fs.mkdirSync(path.join(dest, 'templates'), { recursive: true });
+    fs.writeFileSync(path.join(dest, 'SKILL.md'), '# skill\n', 'utf8');
+    // The knowledge three are complete, but bin/ + package.json are residue
+    // from an old-form full copy.
+    fs.mkdirSync(path.join(dest, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(dest, 'bin', 'schedule-task.js'), 'old-code', 'utf8');
+    fs.writeFileSync(path.join(dest, 'package.json'), '{}', 'utf8');
+    const r = runDoctor({ HOME: home });
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /code residue: bin, package\.json/);
+    assert.match(r.stdout, /old-form code residue — re-run `schedule-task install`/);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('doctor accepts a clean bound skill dir (knowledge three, no code)', () => {
+  const t = h.tmpdir('schedtask-doctor-');
+  try {
+    const home = path.join(t, 'home');
+    const dest = path.join(home, '.agents', 'skills', 'schedule-task');
+    fs.mkdirSync(path.join(dest, 'references'), { recursive: true });
+    fs.mkdirSync(path.join(dest, 'templates'), { recursive: true });
+    fs.writeFileSync(path.join(dest, 'SKILL.md'), '# skill\n', 'utf8');
+    const r = runDoctor({ HOME: home });
+    assert.match(r.stdout, /knowledge three, no code/);
+    assert.doesNotMatch(r.stdout, /code residue/);
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }
