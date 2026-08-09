@@ -11,26 +11,10 @@ tasks through the `claude` or `kimi` executor CLIs only (see `references/envelop
 
 Git is the only channel: you push *intent*, workers merge *results* back to `dev`.
 
-```
- Author box (any laptop)         Git remote              Worker box(es) (VPS, watchdog)
- ┌──────────────────────┐   ┌────────────────┐   ┌───────────────────────────────────┐
- │ /schedule-task       │   │ tasks/*.json   │   │ schedule-task watchdog (daemon)   │
- │  dev / audit /       │──►│ prompts/*.md   │──►│  reads state/.machine role+id     │
- │  archive flows       │   │ batches/*.json │   │  only launches .worker == my id  │
- │  envelope + prompt   │   │                │   │  └─ detached runner → run <id>    │
- │  + batch manifest    │   │                │   │      worktree on automation/<id>  │
- │  (assigns .worker)   │   │                │   │      agents.js → claude|kimi      │
- └──────────────────────┘   │                │   │      limit? park → resume session│
-        ▲                   │ dev ← results  │◄──│      done → executor merges to dev│
- │  git fetch + status ─────┤ reports/*.md   │   │      (never touches others' work) │
- │  audit / archive ───────►│ (merged to dev)│   └───────────────────────────────────┘
- │                          │                │
- └──────────────────────────┘                └─── workers execute + merge their own work
-```
+![Author → Git → Worker operation sequence](docs/diagrams/sequence.svg)
 
 *(All `tasks/` `prompts/` `reports/` `batches/` `state/` `templates/` above live under the
-repo's `.schedule-tasks-data/` directory — the per-project private data dir, renamed from the
-old `automation/`.)*
+repo's `.schedule-tasks-data/` directory — the per-project private data dir.)*
 
 Key properties: no AI in the control loop (the orchestrator is deterministic Node); add-only git
 design (no merge conflicts on the bus); gates as prose (polyglot — any language's repo); resume
@@ -41,9 +25,7 @@ execute, the author merges finished batches (dependency-ordered, PR optional).
 ## Runtime: one CLI, two dependencies
 
 The whole runtime is the **`schedule-task` CLI** — a single zero-dependency Node program. The
-only hard requirements are **node ≥ 18** and **git**; the old bash/jq/GNU-date/tmux/flock stack
-is gone. `jq` is JSON.parse, GNU date is `Date`, tmux sessions are detached process groups
-(killed via `kill(-pgid)`), flock is a pid lock file.
+only hard requirements are **node ≥ 18** and **git**.
 
 The install is **three-layer separated** (see `docs/refactor-three-layer-separation.md`): the
 CLI is installed **once per machine** as a global command by `install.sh` (`npm install -g`),
@@ -58,9 +40,6 @@ schedule-task self-test   # run the node:test suite
 schedule-task version     # the CLI version
 schedule-task install     # bind the knowledge layer (the skill) into an agent
 ```
-
-`schedule-task <cmd>` is the same command on every machine — no per-copy invocation, no version
-drift between installs.
 
 ## Install
 
@@ -144,7 +123,7 @@ older versions is never touched by the CLI — remove it by hand at your conveni
    (from `templates/dev-plan-harness.md`), shows them for review, and commits to the inbox branch
    (`dev`).
 3. **Watch it.** From the worker: `schedule-task status` (live state) and
-   `schedule-task log <id> -f` (live stream — replaces the old `tmux attach`). From the author
+   `schedule-task log <id> -f` (live stream). From the author
    box: `git fetch && schedule-task status` (reads the reports merged to `dev` — no branch
    awareness needed). Each finished dev task is merged to `dev` by its executor with a handover
    report; `schedule-task` (bare) is also status.
@@ -224,30 +203,6 @@ Two version numbers are managed separately:
 `migrate` is deterministic (no AI): it upgrades the committed schema version in place. Commit the
 current state first, then run it — rollback is a git revert. On a fresh repo, `schedule-task
 init` writes the current schema version.
-
-## Back-compat & rollback
-
-- Old envelopes (no `batch` / `worker` / `depends_on` / `agent`) run unchanged as single-task
-  batches with no machine assignment (any worker) on the default `claude` profile. Old-style ids
-  remain valid — the id is just the filename.
-- **Data dir renamed:** `automation/` → `.schedule-tasks-data/`. `schedule-task init` migrates
-  an existing `automation/` data dir in place (move + rewrite `prompt_file`); the old shell
-  scripts are not needed for anything.
-- **Branch convention unchanged:** one branch per task, `automation/<id>` — in-flight task
-  branches on live workers keep working. New tasks delete the branch after a successful merge.
-- **Worker merge replaces author merge-batch.** Workers now merge their own work to `dev`;
-  `merge-batch` is gone. In-flight tasks finish under the old rules.
-- **No tmux:** watch a task with `schedule-task log <id> -f`; cancel kills the runner's process
-  group instead of a tmux session.
-- **State contract preserved, words extended:** the `state/<id>` first-line-is-the-state-word
-  contract is preserved; v3 adds `dev-done` / `merge-failed` / `audit-pass` / `audit-fail` and
-  reads legacy `done` as `dev-done`, so older tooling reading those files keeps working.
-- `FL_MAX_CONCURRENCY=1` restores the old fully-serial dispatch behavior; the default is 2.
-- **Unversioned data dirs keep working for reads.** A `.schedule-tasks-data/` without a
-  `version` file (pre-3.1.0) is treated as legacy schema v0: `status`/`doctor` warn and continue,
-  write commands (`run`/`audit`/`cancel`/`archive`) hard-stop with a hint until
-  `schedule-task migrate` stamps the version (commit first — rollback is a git revert).
-- The old bash runtime is preserved in git history (`automation/*.sh` on `main`).
 
 ## More
 

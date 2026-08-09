@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="780" viewBox="0 0 1280 780" font-family="Helvetica Neue, Arial, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="780" fill="#ffffff"/>
+
+  <!-- ===================== Lifelines ===================== -->
+  <line x1="200" y1="92" x2="200" y2="700" stroke="#d0d7de" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="540" y1="92" x2="540" y2="700" stroke="#d0d7de" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="880" y1="92" x2="880" y2="700" stroke="#d0d7de" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- ===================== Participant headers ===================== -->
+  <rect x="115" y="28" width="170" height="64" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+  <text x="200" y="52" font-size="14" font-weight="bold" fill="#1f2328" text-anchor="middle">Author box</text>
+  <text x="200" y="72" font-size="10.5" fill="#57606a" text-anchor="middle">schedule-task dev / audit / archive</text>
+
+  <rect x="455" y="28" width="170" height="64" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+  <text x="540" y="52" font-size="14" font-weight="bold" fill="#1f2328" text-anchor="middle">Git remote</text>
+  <text x="540" y="72" font-size="10.5" fill="#9a6700" text-anchor="middle">dev branch · the only channel</text>
+
+  <rect x="775" y="28" width="210" height="64" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+  <text x="880" y="52" font-size="14" font-weight="bold" fill="#1f2328" text-anchor="middle">Worker box(es)</text>
+  <text x="880" y="72" font-size="10.5" fill="#57606a" text-anchor="middle">watchdog → runner → claude | kimi</text>
+
+  <!-- ===================== 1. author -> git ===================== -->
+  <line x1="200" y1="118" x2="532" y2="118" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="366" y="110" font-size="11.5" fill="#1f2328" text-anchor="middle">push — envelope + prompt + batch manifest</text>
+  <text x="366" y="132" font-size="10.5" fill="#57606a" text-anchor="middle">committed to the dev branch</text>
+
+  <!-- ===================== 2. git -> worker ===================== -->
+  <line x1="548" y1="170" x2="872" y2="170" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="710" y="162" font-size="11.5" fill="#1f2328" text-anchor="middle">git pull — tasks/ prompts/ batches/</text>
+  <text x="710" y="184" font-size="10.5" fill="#57606a" text-anchor="middle">watchdog tick every 5 min (daemon)</text>
+
+  <!-- ===================== 3-7. worker self messages ===================== -->
+  <g stroke="#57606a" stroke-width="2" fill="none">
+    <path d="M 890 222 L 970 222 L 970 248 L 890 248" marker-end="url(#arrow)"/>
+    <path d="M 890 270 L 970 270 L 970 296 L 890 296" marker-end="url(#arrow)"/>
+    <path d="M 890 318 L 970 318 L 970 344 L 890 344" marker-end="url(#arrow)"/>
+    <path d="M 890 366 L 970 366 L 970 392 L 890 392" marker-end="url(#arrow)"/>
+    <path d="M 890 414 L 970 414 L 970 440 L 890 440" marker-end="url(#arrow)"/>
+  </g>
+  <g font-size="10.5" fill="#57606a">
+    <text x="978" y="219">watchdog: run_at due? .worker == my id?</text>
+    <text x="978" y="234">depends_on all dev-done? → spawn detached runner</text>
+    <text x="978" y="267">run &lt;id&gt; — worktree on automation/&lt;id&gt;</text>
+    <text x="978" y="282">isolated branch, never main/dev directly</text>
+    <text x="978" y="315">agents.js → claude | kimi -p</text>
+    <text x="978" y="330">streams session id; parses usage-limit events</text>
+    <text x="978" y="363">usage limit? park until reset → resume same session</text>
+    <text x="978" y="378">never redo, never revert</text>
+    <text x="978" y="411">gates pass → write handover report</text>
+    <text x="978" y="426">sentinel + new-commit verification (trust but verify)</text>
+  </g>
+
+  <!-- ===================== 8. worker -> git ===================== -->
+  <line x1="880" y1="478" x2="548" y2="478" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="710" y="470" font-size="11.5" fill="#1f2328" text-anchor="middle">push — merge own branch to dev</text>
+  <text x="710" y="492" font-size="10.5" fill="#57606a" text-anchor="middle">reports/*.md land on dev; branch deleted after merge</text>
+
+  <!-- ===================== 9. git -> author ===================== -->
+  <line x1="540" y1="530" x2="208" y2="530" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="374" y="522" font-size="11.5" fill="#1f2328" text-anchor="middle">git fetch &amp;&amp; schedule-task status</text>
+  <text x="374" y="544" font-size="10.5" fill="#57606a" text-anchor="middle">author reads only dev — never task branches</text>
+
+  <!-- ===================== 10. author -> git ===================== -->
+  <line x1="200" y1="582" x2="532" y2="582" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="366" y="574" font-size="11.5" fill="#1f2328" text-anchor="middle">audit (dev-done review, opposite agent)</text>
+  <text x="366" y="596" font-size="10.5" fill="#57606a" text-anchor="middle">→ archive (batch close-out) when every member is terminal</text>
+
+  <!-- ===================== 11. git -> author (dashed return) ===================== -->
+  <line x1="540" y1="634" x2="208" y2="634" stroke="#57606a" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="374" y="626" font-size="11.5" fill="#1f2328" text-anchor="middle">merged reports / audit results / batch summary</text>
+  <text x="374" y="648" font-size="10.5" fill="#57606a" text-anchor="middle">always readable back from dev</text>
+
+  <!-- ===================== Bottom note ===================== -->
+  <rect x="80" y="712" width="1120" height="46" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+  <text x="640" y="730" font-size="12.5" fill="#1a7f37" text-anchor="middle">Author pushes intent → Git carries it → workers execute and merge their own results back to dev</text>
+  <text x="640" y="748" font-size="11" fill="#1a7f37" text-anchor="middle">Git is the only channel — the author and workers never touch each other directly</text>
+</svg>
