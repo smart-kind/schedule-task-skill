@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const { showFile } = require('./git.js');
 
 // ---------------------------------------------------------------------------
 // Environment pinning (cron runs with a sparse environment)
@@ -118,6 +119,75 @@ function writeMachine(stateDirPath, role, id) {
 // ---------------------------------------------------------------------------
 // State files — first line is the state word (load-bearing contract)
 // ---------------------------------------------------------------------------
+
+// v3 state words: pending (implicit) / running / dev-done / audit-pass /
+// audit-fail / merge-failed / failed / cancelled. The v1–v2 word `done` is
+// accepted everywhere and normalized to `dev-done` (back-compat).
+const STATE_ALIASES = { done: 'dev-done' };
+function normalizeState(word) {
+  return STATE_ALIASES[word] || word;
+}
+
+// Terminal (no further dispatch) states. Anything else is pending/running.
+const TERMINAL_STATES = ['dev-done', 'audit-pass', 'audit-fail', 'merge-failed', 'failed', 'cancelled'];
+function isTerminalState(word) {
+  return TERMINAL_STATES.includes(normalizeState(word));
+}
+
+// The current batch = the NEWEST non-archived manifest in batches/ (the system
+// runs one batch at a time). null when none. Archived manifests live in
+// batches/archive/, so archiving a batch moves the pointer to nothing/older.
+function currentBatch(repo) {
+  const batchesDir = path.join(dataDir(repo), 'batches');
+  let files = [];
+  try {
+    files = fs.readdirSync(batchesDir).filter((f) => f.endsWith('.json')).sort();
+  } catch {
+    return null;
+  }
+  const last = files[files.length - 1];
+  if (!last) return null;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(batchesDir, last), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// Copy the prompt templates (harness-common + the dev/audit harnesses) into the
+// repo's committed data dir, so worktree prompts can reference them. Templates
+// are always refreshed from the skill copy they run under.
+function ensureTemplates(repo) {
+  const src = path.join(skillRoot(), 'templates');
+  const dest = path.join(dataDir(repo), 'templates');
+  if (!fs.existsSync(src)) return;
+  ensureDir(dest);
+  for (const f of fs.readdirSync(src)) {
+    if (!f.endsWith('.md')) continue;
+    try {
+      fs.copyFileSync(path.join(src, f), path.join(dest, f));
+    } catch {
+      /* never fail the caller over a template */
+    }
+  }
+}
+
+// Author-side task state from the committed report: local copy if present, else
+// the merged copy on origin/<inbox> (reports reach dev via the worker merge).
+function reportState(repo, id) {
+  const root = dataDir(repo);
+  const local = path.join(root, 'reports', `${id}.md`);
+  if (fs.existsSync(local)) return reportMarker(fs.readFileSync(local, 'utf8'));
+  const rel = path.posix.join(path.relative(repo, root), 'reports', `${id}.md`);
+  const r = showFile(repo, `origin/${readConfig().inbox}`, rel);
+  if (r.ok) return reportMarker(r.stdout);
+  return '';
+}
+
+function reportMarker(text) {
+  const m = /\((done|failed|dev-done|merge-failed|audit-pass|audit-fail)\)/.exec(text);
+  return m ? normalizeState(m[1]) : 'dev-done';
+}
 
 // Absent file = 'pending' (implicit).
 function readState(stateDirPath, id) {
@@ -254,6 +324,11 @@ module.exports = {
   writeMachine,
   readState,
   writeState,
+  normalizeState,
+  isTerminalState,
+  currentBatch,
+  ensureTemplates,
+  reportState,
   appendNotes,
   writePid,
   readPid,

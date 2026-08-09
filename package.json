@@ -1,6 +1,6 @@
 {
   "name": "schedule-task",
-  "version": "2.2.1",
+  "version": "3.0.0",
   "description": "Scheduled, resumable automation tasks (dev/test/audit) driven by a single Node CLI — dispatcher, resilient runner, status, cancel, archive, batch merge. Git is the only transport; no runtime npm dependencies.",
   "bin": {
     "schedule-task": "bin/schedule-task.js"

@@ -13,10 +13,12 @@ machine can know (force with `FL_MODE=worker|author`; a `state/.machine` `role` 
   Shows live detail for running tasks: attempt count, start time, latest
   `[[CHECKPOINT …]]` marker.
 - **Author mode** (your laptop): committed truth only. `state/` is gitignored, so state is
-  inferred from each task's `reports/<id>.md` (the H1 encodes `done|failed`). Reports live on the
-  task branches until the author merges them, so **run `git fetch` first** — the reporter reads
-  the report from `origin/<branch>` when there is no local copy. A task mid-run reads as
-  `pending` here — that is correct, not a bug: the author box only knows the last committed truth.
+  inferred from each task's `reports/<id>.md` (the H1 encodes the state word: `dev-done`,
+  `audit-pass`, `audit-fail`, `merge-failed`, `failed`, …). Reports are **merged to `dev`** by
+  the worker, so **run `git fetch` first** — the reporter reads the report from `origin/<inbox>`
+  when there is no local copy. A task mid-run reads as `pending` here — that is correct, not a
+  bug: the author box only knows the last committed truth. The author never needs to look at
+  task branches (only `merge-failed` leftovers warrant inspecting the pushed branch).
 
 Output is grouped by batch: a batch header (title, notes, `x/y done` progress, next eligible
 task), one row per member task with its trailing notes lines, and ungrouped legacy tasks under
@@ -30,8 +32,8 @@ task), one row per member task with its trailing notes lines, and ungrouped lega
 | Machine identity (gitignored, written by init) | `.schedule-tasks-data/state/.machine` (`role=author\|worker`, `id=<machine-id>`) |
 | Task inbox (committed) | `.schedule-tasks-data/tasks/<id>.json` (+ `tasks/archive/`) |
 | Prompts (committed) | `.schedule-tasks-data/prompts/<id>.md` (+ `prompts/archive/`) |
-| Reports (committed, durable) | `.schedule-tasks-data/reports/<id>.md` — on the task branch until the author's merge-batch lands them |
-| Batch manifests (committed) | `.schedule-tasks-data/batches/<batch>.json` |
+| Reports (committed, durable) | `.schedule-tasks-data/reports/<id>.md` — merged to `dev` by the worker, read by the author |
+| Batch manifests (committed) | `.schedule-tasks-data/batches/<batch>.json` (+ `batches/archive/` after `archive`) |
 | Live state (worker-local, gitignored) | `.schedule-tasks-data/state/<id>`, `.schedule-tasks-data/state/<id>.notes`, `<id>.pid`, `.watchdog.pid`, `.watchdog.status`, `.dispatch.lock` (legacy `state/batch-<batch>` merge flags no longer written; status still renders them if present) |
 | Per-task run log (worker) | `~/.local/state/schedule-task/<repo-basename>/<id>/run.log` |
 | Raw executor streams (worker) | `~/.local/state/schedule-task/<repo-basename>/<id>/attempt-<n>.jsonl` |
@@ -72,14 +74,13 @@ that were neither done nor a usage limit. Diagnose from the run log and the last
 stale): same re-drive — delete the state file, next tick relaunches; the persisted session id
 lets the runner resume with context.
 
-**Batch merge conflicts during author finalization.** The author runs
-`schedule-task merge-batch <batch-id>` once every task in the batch has a `(done)` report on its
-branch. On a conflict it aborts (`git merge --abort`), leaves `merge_target` clean, and exits
-non-zero — later branches stay unmerged, and nothing retries automatically. Resolve by hand (or
-hand it to an agent): fix the conflicting files on the merge target, commit, re-run
-`merge-batch` — already-merged branches merge cleanly as no-ops, so the run resumes where it
-stopped. The member task states stay `done` — only the landing step failed. Workers never touch
-this: they only execute and push their own branches.
+**Merge failures are the worker's escalation, not a batch step.** When an executor cannot
+resolve a merge conflict it ends the task `merge-failed`: it pushes its branch and writes the
+conflict details into the report. The author sees the task in `status`, inspects the pushed
+branch (`git show origin/automation/<id>`), and re-dispatches a follow-up dev task against it —
+the worktree is reused on re-dispatch, so committed work is not lost. The runner itself never
+force-merges: if dev advanced after the executor's integration (a race), the fast-forward is
+refused and the task is marked `merge-failed` the same way.
 
 **Task keeps hitting usage limits.** That's normal operation, not a fault: the runner parks until
 the reset time and resumes the same session. Expect `limit-wait` lines in notes and gaps in the
@@ -107,9 +108,9 @@ schedule-task cancel --all [reason...]    # every pending + running task
 - Terminal tasks (`done`/`failed`/`cancelled`) are refused. The worktree
   (`~/.local/state/schedule-task/<repo>/worktrees/<id>`) is left in place — inspect, then delete
   by hand.
-- Batch interplay: cancelling never triggers a merge (workers never merge). The author's
-  `merge-batch` lands every task branch whose committed report says `(done)` and skips the rest —
-  a cancelled task has no done report, so its branch is never merged.
+- Batch interplay: cancelling never merges anything — workers only merge their own work, and a
+  cancelled task never reaches `dev-done`, so its branch is never landed. `archive` still closes
+  the batch once every member is terminal (cancelled members count as terminal).
 - Worker-only (needs live `state/` + the process). To un-cancel: `rm .schedule-tasks-data/state/<id>`
   → the task is `pending` again at the next tick.
 

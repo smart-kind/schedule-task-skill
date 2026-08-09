@@ -16,7 +16,7 @@ const readline = require('node:readline');
 const core = require('./core.js');
 const { git } = require('./git.js');
 
-const DATA_DIRS = ['tasks', 'prompts', 'reports', 'batches', 'state', 'hooks'];
+const DATA_DIRS = ['tasks', 'prompts', 'reports', 'batches', 'state', 'hooks', 'templates'];
 const COMMITTED_DIRS = ['tasks', 'prompts', 'reports', 'batches'];
 const GITIGNORE_LINE = '.schedule-tasks-data/state/';
 const OLD_RUNTIME_SCRIPTS = [

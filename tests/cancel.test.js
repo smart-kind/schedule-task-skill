@@ -64,7 +64,7 @@ test('(e) cancel: kill running, cascade, refuse terminal, --all', async () => {
     assert.equal(core.isAlive(child.pid), false, 'the running process group was killed');
 
     logs = capture(() => cancel({ repo, target: 'P', reason: 'x', config }));
-    assert.match(logs.join('\n'), /P is 'done' — nothing to cancel/);
+    assert.match(logs.join('\n'), /P is 'dev-done' — nothing to cancel/);
     assert.equal(core.readState(stateDir, 'P'), 'done', 'terminal task untouched');
 
     cancel({ repo, target: 'Q', reason: 'superseded', config });

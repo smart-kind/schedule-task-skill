@@ -32,8 +32,8 @@
   <text x="70" y="428" font-size="11.5" fill="#57606a">随时查看每个任务进行到哪一步</text>
 
   <rect x="55" y="450" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
-  <text x="70" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 验收合并</text>
-  <text x="70" y="490" font-size="11.5" fill="#57606a">批次全部完成后，把成果并入主开发分支</text>
+  <text x="70" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 审查收尾</text>
+  <text x="70" y="490" font-size="11.5" fill="#57606a">dev 全部到位后审查（audit）并关批次（archive）</text>
 
   <text x="55" y="548" font-size="12" fill="#57606a">一台机器只能是一个角色，不可兼任</text>
 
@@ -49,8 +49,8 @@
 
   <rect x="420" y="310" width="230" height="90" rx="6" fill="#ffffff" stroke="#9a6700"/>
   <text x="438" y="334" font-size="13" font-weight="bold" fill="#1f2328">结果出站</text>
-  <text x="438" y="354" font-size="11.5" fill="#57606a">执行报告 / 任务分支</text>
-  <text x="438" y="372" font-size="11.5" fill="#57606a">（每个任务一条专属分支）</text>
+  <text x="438" y="354" font-size="11.5" fill="#57606a">成果 + 报告（已合并回 dev）</text>
+  <text x="438" y="372" font-size="11.5" fill="#57606a">（任务分支是临时工作间，用后即删）</text>
 
   <text x="420" y="480" font-size="12" fill="#9a6700">推送 = 快递；拉取 = 取件</text>
 
@@ -76,12 +76,12 @@
   <text x="800" y="366" font-size="11.5" fill="#57606a">遇到使用限额 → 等重置后接着干，不重来</text>
 
   <rect x="785" y="388" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
-  <text x="800" y="410" font-size="13" font-weight="bold" fill="#1f2328">⑤ 交回结果</text>
-  <text x="800" y="428" font-size="11.5" fill="#57606a">提交成果 + 写执行报告，推送回通道</text>
+  <text x="800" y="410" font-size="13" font-weight="bold" fill="#1f2328">⑤ 合并回 dev</text>
+  <text x="800" y="428" font-size="11.5" fill="#57606a">写报告 → 自己把成果合并回 dev（先解冲突）</text>
 
   <rect x="785" y="450" width="280" height="52" rx="6" fill="#ffffff" stroke="#57606a"/>
-  <text x="800" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 绝不合并</text>
-  <text x="800" y="490" font-size="11.5" fill="#57606a">只交结果，合并是作者的专属权利</text>
+  <text x="800" y="472" font-size="13" font-weight="bold" fill="#1f2328">⑥ 冲突自己解</text>
+  <text x="800" y="490" font-size="11.5" fill="#57606a">只合并自己的成果；解不了 → merge-failed 交作者</text>
 
   <!-- ===================== Arrows ===================== -->
   <line x1="360" y1="230" x2="390" y2="230" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>

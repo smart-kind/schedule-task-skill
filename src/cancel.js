@@ -37,7 +37,7 @@ function cancel({ repo, target, reason, config }) {
         continue;
       }
       if (!env.id) continue;
-      const st = core.readState(stateDir, env.id);
+      const st = core.normalizeState(core.readState(stateDir, env.id));
       if (st === 'pending' || st === 'running') ids.push(env.id);
     }
     if (ids.length === 0) {
@@ -55,10 +55,12 @@ function cancel({ repo, target, reason, config }) {
 
   const result = { killed: 0, cancelled: [], refused: [] };
 
+  const TERMINAL = ['dev-done', 'audit-pass', 'audit-fail', 'merge-failed', 'failed', 'cancelled'];
+
   // cancel_one <id> <why> — kill if running, mark cancelled, record.
   const cancelOne = (id, why) => {
-    const st = core.readState(stateDir, id);
-    if (st === 'done' || st === 'failed' || st === 'cancelled') {
+    const st = core.normalizeState(core.readState(stateDir, id));
+    if (TERMINAL.includes(st)) {
       console.log(`cancel: ${id} is '${st}' — nothing to cancel`);
       return false;
     }
@@ -114,10 +116,10 @@ function cancel({ repo, target, reason, config }) {
         const depId = env.id;
         if (!depId || visited.has(depId)) continue;
         if (!(env.depends_on || []).includes(id)) continue;
-        const st = core.readState(stateDir, depId);
+        const st = core.normalizeState(core.readState(stateDir, depId));
         if (st === 'running') {
           console.log(`cancel: WARNING dependent ${depId} is already running; leaving it (kill manually if unwanted)`);
-        } else if (st !== 'done' && st !== 'failed') {
+        } else if (!TERMINAL.includes(st)) {
           queue.push({ id: depId, why: `dependency ${id} cancelled` });
         }
       }

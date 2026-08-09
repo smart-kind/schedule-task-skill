@@ -1,8 +1,8 @@
 'use strict';
 // git.js — thin wrappers around `git` for the parts of the runtime that touch git.
 // Every call returns { ok, stdout, code } — the caller decides what failure means
-// (dispatch tolerates offline, merge-batch must fail hard). git is the only
-// channel: author pushes intent, worker pushes back results.
+// (dispatch tolerates offline, archive must fail hard). git is the only
+// channel: author pushes intent, workers merge results back to dev.
 
 const { execFileSync } = require('node:child_process');
 

@@ -33,11 +33,16 @@ the trigger stays trivial.
 - **`runner <id>`** (worker, detached) — executes the task's prompt in an isolated git worktree
   on the task branch; survives usage-limit windows by parking until the reset time and resuming
   the same CLI session with full context; verifies completion (the `[[TASK_DONE <id> …]]`
-  sentinel **and** a new commit — trust-but-verify, the executor never self-certifies); commits an
-  autosave + `.schedule-tasks-data/reports/<id>.md`, pushes the branch, records state.
-- **Executor** — the coding agent CLI running the plan-harness prompt. It is the only component
-  with a brain; it fans out its own sub-agents, discovers the repo's build/test commands, and
-  decides when the gates pass.
+  sentinel **and** a new commit — trust-but-verify, the executor never self-certifies). The
+  executor writes the handover report and integrates the latest dev into its branch; the runner
+  verifies mechanically that dev is an ancestor of the branch, fast-forwards `dev` to it, pushes,
+  stamps the report, records state, and deletes the worktree + branch. If the fast-forward
+  cannot land (dev advanced after the executor's integration), the runner marks the task
+  `merge-failed`, pushes the branch, and keeps the worktree for the author.
+- **Executor** — the coding agent CLI running the harness prompt. It is the only component
+  with a brain; it fans out its own sub-agents, discovers the repo's build/test commands,
+  decides when the gates pass, writes the report, and resolves merge conflicts in its own
+  worktree (rebase onto the latest dev).
 
 **No AI in the control loop.** watchdog and runner are deterministic Node. Every decision that
 requires judgment happens inside the executor, never in the orchestrator.
@@ -47,29 +52,29 @@ requires judgment happens inside the executor, never in the orchestrator.
 ```
  Author box (laptop)            Git remote           Worker boxes (VPS, worker-a, …)
        │                            │                      │
-  /schedule-task (NL)               │                      │
+  /schedule-task dev/audit          │                      │
   commit envelope+prompt            │                      │
   + batch manifest ──push──────────►│                      │
   (each task names its worker)      │◄── git pull ─────────┤  watchdog tick every 5 min (daemon)
        │                            │     scan tasks/*.json: .worker == my id?
-       │                            │     due? pending? depends_on all done?
+       │                            │     due? pending? depends_on all dev-done?
        │                            │     launch ──► detached runner ──► agents.js
        │                            │                      │   worktree on automation/<id>
        │                            │                      │   claude|kimi -p runs the prompt
        │                            │                      │   ┌─ usage limit ─┐
        │                            │                      │   │ park → resume │
        │                            │                      │   └───────────────┘
-       │                            │◄── push results ─────┤   sentinel + new commit → done
-       │                            │     task branch + reports/<id>.md (per worker)
+       │                            │                      │   executor: report + rebase dev
+       │                            │◄── push dev ─────────┤   runner: ff dev ← branch, cleanup
+       │                            │     (results + reports/<id>.md land on dev)
        │  git fetch ◄───────────────┤                      │
-       │  status: read reports      │                      │
-       │  merge-batch: land all     │                      │
-       │  done branches → dev       │                      │
-       │  push (PR optional)        │                      │
+       │  status: read dev reports  │                      │
+       │  audit / archive           │                      │
 ```
 
-Git is the only channel. The author pushes *intent*; each worker pushes back *results* on its own
-branches. No service, no API, no shared filesystem.
+Git is the only channel. The author pushes *intent*; each worker pushes back *results* **on the
+inbox branch (`dev`) itself** — task branches are disposable workspaces, not the channel. No
+service, no API, no shared filesystem.
 
 ## Core invariants
 
@@ -77,7 +82,7 @@ branches. No service, no API, no shared filesystem.
    This keeps the multi-hour resilience logic reviewable and testable.
 2. **Add-only design → conflict-free merges.** Each side only ever *adds* new files: the author
    adds `tasks/*.json` + `prompts/*.md` (+ `batches/*.json`); the worker adds `reports/*.md` and
-   commits on per-task branches. One file per task — a shared mutable file would be a guaranteed
+   merges its own branch to `dev`. One file per task — a shared mutable file would be a guaranteed
    merge conflict. Mutable runtime status lives off-git in `state/` (gitignored, worker-local).
 3. **Gates are prose, never fields.** Acceptance criteria live in the prompt as natural language;
    the executor discovers the concrete commands for the repo it lands in (`npm test` vs `pytest`
@@ -92,21 +97,29 @@ branches. No service, no API, no shared filesystem.
 5. **Worktree isolation per task.** Each task runs in its own git worktree on its own branch
    (`automation/<id>`, cut from the inbox-branch tip). Concurrent tasks never share a working
    tree; the main checkout stays untouched for the watchdog.
-6. **Per-task branches; never `main`/`dev` directly.** The executor's blast radius is bounded by
-   branch guardrails ("never touch main"), and results arrive as reviewable branch commits.
+6. **Per-task branches, disposable; never `main`/`dev` directly.** The executor's blast radius is
+   bounded by branch guardrails ("never touch main"). The branch is an isolation workspace only:
+   after a successful merge it is deleted (worktree + branch); on failure it is pushed so the
+   author can inspect or re-dispatch.
 7. **Machine identity, no cross-machine racing.** Every machine that runs the runtime declares
    itself at `init` in gitignored `.schedule-tasks-data/state/.machine`: `role=author|worker` +
    `id=<machine-id>`. Only `role=worker` machines dispatch; a task runs only on its named
    `worker` (absent = any worker may take it). Because state/ never crosses git, this declaration
    is the only coordination between machines — and it is enough, because each task has exactly
    one owner.
-8. **The author is the only merger.** Workers never merge. When every task in a batch is done,
-   the author runs `schedule-task merge-batch <batch-id>`: it fetches origin, lands each task
-   branch whose committed report says `(done)` onto the manifest's `merge_target` (default `dev`)
-   in manifest (dependency) order, and pushes (PR optional). A conflict aborts the merge
-   (`git merge --abort`) and exits non-zero — resolution is a human/agent decision, never an
-   automatic force-through. Idempotent, so a fix + re-run resumes where it stopped.
-9. **Liveness by PID, not by silence.** A task is dead only when its process group is gone. An
+8. **Each worker merges its OWN work; the author never merges.** The executor integrates the
+   latest dev into its branch (conflict resolution is its job — never a punt), and the runner
+   fast-forwards `dev` to the branch (conflict-free by construction) and pushes. If the
+   fast-forward cannot land, the task becomes `merge-failed` with the branch pushed — the author
+   inspects and re-dispatches a follow-up task. This makes responsibility precise: nobody merges
+   anyone else's work, and there is no author-side merge step to get out of order.
+9. **Audit is a mandatory, independent second pass.** When every dev task is `dev-done`, the
+   author runs `audit`: audit task(s) review the merged work with the OPPOSITE agent (another
+   mind), covering production code, test meaningfulness (fake-data tests are a known failure
+   mode), and — in `--edit` mode — rewriting meaningless tests with evidence and writing new
+   ones. Verdict `audit-pass` (merged to dev) or `audit-fail` (branch + report pushed for the
+   author). The batch is closed by the author's `archive` once every member is terminal.
+10. **Liveness by PID, not by silence.** A task is dead only when its process group is gone. An
    executor fanning out sub-agents can legitimately emit nothing for 10+ minutes — never kill on
    "the stream went quiet". `cancel` kills the process group recorded in `state/<id>.pid`
    (SIGTERM, then SIGKILL after a 5 s grace window).

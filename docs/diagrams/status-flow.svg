@@ -36,7 +36,7 @@
   <rect x="480" y="240" width="280" height="90" rx="8" fill="#f6f8fa" stroke="#57606a"/>
   <text x="500" y="266" font-size="13.5" font-weight="bold" fill="#1f2328">读「提交过的报告」</text>
   <text x="500" y="288" font-size="11.5" fill="#57606a">先 git fetch 拉最新</text>
-  <text x="500" y="306" font-size="11.5" fill="#57606a">从每个任务分支上的报告推断状态</text>
+  <text x="500" y="306" font-size="11.5" fill="#57606a">从 dev 分支上合并回来的报告推断状态</text>
 
   <!-- join -->
   <line x1="200" y1="330" x2="200" y2="413" stroke="#57606a" stroke-width="2"/>

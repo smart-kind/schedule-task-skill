@@ -1,6 +1,8 @@
 'use strict';
-// archive.test.js — retire a finished task into tasks/archive + prompts/archive,
-// refuse anything not done/cancelled.
+// archive.test.js — batch close-out: archives the CURRENT batch (manifest +
+// member envelopes + prompts) once every member is terminal, writes the batch
+// summary report, pushes, and empties the current batch. Refuses while any
+// member is still pending/running.
 
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -10,26 +12,79 @@ const helpers = require('./helpers.js');
 const core = require('../src/core.js');
 const { archive } = require('../src/archive.js');
 
-test('archive: done task retires into archive/, pending task refused', () => {
+// Build a repo whose current batch b2 has: dev tasks D1/D2 (dev-done), audit
+// task A1 (audit-pass), and an extra pending dev task D3.
+function makeBatchRepo(t) {
+  const { repo } = helpers.makeRepo(t, 'repo-ar');
+  const dataRoot = helpers.dataRoot(repo);
+  for (const id of ['D1', 'D2']) {
+    helpers.addTask(repo, { id, batch: 'b2', branch: `automation/${id}` }, `prompt ${id}`);
+  }
+  // Audit envelope + prompt (batch member, depends on D1).
+  fs.mkdirSync(path.join(dataRoot, 'prompts'), { recursive: true });
+  fs.writeFileSync(path.join(dataRoot, 'tasks', 'A1.json'),
+    JSON.stringify({ id: 'A1', type: 'audit', batch: 'b2', branch: 'automation/A1', depends_on: ['D1'], prompt_file: '.schedule-tasks-data/prompts/A1.md' }, null, 2));
+  fs.writeFileSync(path.join(dataRoot, 'prompts', 'A1.md'), 'audit prompt A1', 'utf8');
+  // Pending dev task — refuses archive until resolved.
+  helpers.addTask(repo, { id: 'D3', batch: 'b2', branch: 'automation/D3' }, 'prompt D3');
+  // Reports on dev: D1/D2 dev-done, A1 audit-pass.
+  fs.mkdirSync(path.join(dataRoot, 'reports'), { recursive: true });
+  fs.writeFileSync(path.join(dataRoot, 'reports', 'D1.md'), '# Report — D1 (dev-done)\n- Attempts: 1\n- Finished: now\n', 'utf8');
+  fs.writeFileSync(path.join(dataRoot, 'reports', 'D2.md'), '# Report — D2 (dev-done)\n- Attempts: 2\n- Finished: now\n', 'utf8');
+  fs.writeFileSync(path.join(dataRoot, 'reports', 'A1.md'), '# Report — A1 (audit-pass)\n- Attempts: 1\n- Finished: now\n', 'utf8');
+  fs.mkdirSync(path.join(dataRoot, 'batches'), { recursive: true });
+  fs.writeFileSync(path.join(dataRoot, 'batches', 'b2.json'),
+    JSON.stringify({ id: 'b2', title: 'batch two', notes: 'x', tasks: ['D1', 'D2'], merge_target: 'dev' }));
+  helpers.git(repo, ['add', '-A']);
+  helpers.git(repo, ['commit', '-qm', 'batch b2 fixtures']);
+  helpers.git(repo, ['push', '-q', 'origin', 'dev']);
+  return repo;
+}
+
+test('archive: refuses while a member is still active', () => {
   const t = helpers.tmpdir();
   try {
-    const { repo } = helpers.makeRepo(t, 'repo-ar');
-    helpers.addTask(repo, { id: 'D', branch: 'automation/D' }, 'prompt D');
-    const stateDir = core.stateDir(repo);
-    fs.mkdirSync(stateDir, { recursive: true });
-    core.writeState(stateDir, 'D', 'done');
+    const repo = makeBatchRepo(t); // D3 has no report → pending
+    const r = archive({ repo });
+    assert.equal(r.exit, 1, 'refused while D3 is pending');
+    assert.ok(fs.existsSync(path.join(helpers.dataRoot(repo), 'batches', 'b2.json')), 'manifest untouched');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
 
-    const r1 = archive({ repo, id: 'D' });
-    assert.equal(r1.exit, 0);
-    assert.ok(fs.existsSync(path.join(helpers.dataRoot(repo), 'tasks', 'archive', 'D.json')), 'envelope moved');
-    assert.ok(fs.existsSync(path.join(helpers.dataRoot(repo), 'prompts', 'archive', 'D.md')), 'prompt moved');
-    assert.ok(!fs.existsSync(path.join(helpers.dataRoot(repo), 'tasks', 'D.json')), 'out of the active inbox');
-    assert.ok(!fs.existsSync(path.join(helpers.dataRoot(repo), 'reports', 'D.md')), 'report untouched');
+test('archive: closes the current batch — moves manifest/envelopes/prompts, writes summary, empties current batch', () => {
+  const t = helpers.tmpdir();
+  try {
+    const repo = makeBatchRepo(t);
+    // Resolve D3: give it a dev-done report so the batch is fully terminal.
+    const dataRoot = helpers.dataRoot(repo);
+    fs.writeFileSync(path.join(dataRoot, 'reports', 'D3.md'), '# Report — D3 (dev-done)\n- Attempts: 1\n- Finished: now\n', 'utf8');
+    helpers.git(repo, ['add', '-A']);
+    helpers.git(repo, ['commit', '-qm', 'D3 done']);
+    helpers.git(repo, ['push', '-q', 'origin', 'dev']);
 
-    helpers.addTask(repo, { id: 'P2', branch: 'automation/P2' }, 'prompt P2');
-    const r2 = archive({ repo, id: 'P2' });
-    assert.equal(r2.exit, 1, 'pending task refused');
-    assert.ok(fs.existsSync(path.join(helpers.dataRoot(repo), 'tasks', 'P2.json')), 'still in the inbox');
+    const r = archive({ repo });
+    assert.equal(r.exit, 0, r.stdout);
+
+    // Manifest + envelopes + prompts archived.
+    assert.ok(!fs.existsSync(path.join(dataRoot, 'batches', 'b2.json')), 'manifest moved out');
+    assert.ok(fs.existsSync(path.join(dataRoot, 'batches', 'archive', 'b2.json')), 'manifest archived');
+    for (const id of ['D1', 'D2', 'D3', 'A1']) {
+      assert.ok(!fs.existsSync(path.join(dataRoot, 'tasks', `${id}.json`)), `${id} out of the inbox`);
+      assert.ok(fs.existsSync(path.join(dataRoot, 'tasks', 'archive', `${id}.json`)), `${id} archived`);
+    }
+    assert.ok(fs.existsSync(path.join(dataRoot, 'prompts', 'archive', 'A1.md')), 'audit prompt archived');
+
+    // Batch summary report written.
+    const summary = fs.readFileSync(path.join(dataRoot, 'reports', 'b2.md'), 'utf8');
+    assert.match(summary, /# Batch report — b2 \(archived\)/);
+    assert.match(summary, /D1 \(dev\): dev-done/);
+    assert.match(summary, /A1 \(audit\): audit-pass/);
+    assert.match(summary, /## Follow-ups/);
+
+    // Current batch is now empty — a new batch may start.
+    assert.equal(core.currentBatch(repo), null, 'current batch cleared');
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }

@@ -47,6 +47,21 @@ const resultEvent = `{"type":"result","result":"all done [[TASK_DONE ${taskId}"}
 
 const done = () => {
   fs.writeFileSync(`mock-work-${n}.txt`, `work ${n}\n`); // a commit in the worktree
+  // v3 executor: write the dev report and commit on the task branch. The mock
+  // skips the rebase-onto-dev step — tests control dev advancement instead —
+  // and never pushes: the runner fast-forwards dev to the branch itself.
+  if (taskId) {
+    fs.mkdirSync('.schedule-tasks-data/reports', { recursive: true });
+    fs.writeFileSync(`.schedule-tasks-data/reports/${taskId}.md`,
+      `# Report — ${taskId} (dev-done)\nmock executor report\n`, 'utf8');
+    const { execFileSync } = require('node:child_process');
+    try {
+      execFileSync('git', ['add', '-A'], { stdio: 'ignore' });
+      execFileSync('git', ['commit', '-qm', `mock work ${n}`], { stdio: 'ignore' });
+    } catch (e) {
+      process.stderr.write(`mock commit failed: ${e.message}\n`);
+    }
+  }
   process.stdout.write(`${sessionEvent}\n${resultEvent}\n`);
   process.exit(0);
 };

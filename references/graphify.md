@@ -56,7 +56,7 @@ skill) and copy it into `~/.kimi-code/skills/graphify/`.
 
 ## Refresh before task work
 
-The plan-harness template (`templates/plan-harness.md`) instructs every executor:
+The shared harness template (`templates/harness-common.md`) instructs every executor:
 
 1. Before starting real work, refresh the graph if the repo has one:
    `graphify update` — refreshes **code nodes only** (incremental, no LLM needed, always safe).

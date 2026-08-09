@@ -1,7 +1,7 @@
 'use strict';
 // cli.js — command table and arg parsing for the schedule-task CLI.
-// One binary, every runtime concern: init / status / dispatch / run / cancel /
-// archive / merge-batch / log / doctor / update / self-test.
+// One binary, every runtime concern: init / status / dev / audit / run / cancel /
+// archive / log / doctor / update / self-test.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,16 +36,27 @@ function parseArgs(argv) {
 
 const USAGE = `schedule-task — scheduled, resumable automation tasks. Git is the only transport.
 
-Usage: schedule-task <command> [options] [args...]
+Usage: schedule-task [command] [options] [args...]   (no command = status)
 
 Commands:
+  (default) / status [--self-test]
+      Read-only report of every scheduled task (worker = live state, author =
+      inferred from the reports merged to dev). Run git fetch first.
+  dev
+      Gate check for starting a NEW dev batch: refuses while a batch is still
+      open (archive it first). The author's agent then runs the create flow:
+      interview -> draft envelope + prompt (templates/dev-plan-harness.md) ->
+      review -> commit to the inbox branch.
+  audit [--readonly|--edit] [--per-task|--batch]
+      AUTHOR-side: create audit task(s) for the current batch's dev-done work.
+      Default --edit (may rewrite meaningless tests + write new ones),
+      --readonly = review only. Default --per-task (one audit per dev task),
+      --batch = one audit over the whole batch. The audit agent defaults to the
+      OPPOSITE of the developer's agent (independent mind).
   init [--role author|worker] [--id <mid>] [--yes]
       Install the runtime into the current repo: create .schedule-tasks-data/,
       declare this machine's role+id, merge gitignore, check dependencies,
       print the worker watchdog command. Migrates an old automation/ data dir when found.
-  status [--self-test]
-      Read-only report of every scheduled task (worker = live state, author =
-      inferred from committed reports on the task branches). Run git fetch first.
   watchdog start|stop|status [--interval <seconds>]
       看门狗（常驻，无需 cron）：start 拉起一个常驻进程，每 <interval> 秒
       （默认 300）检查一次到点任务并启动为后台执行器（并发上限
@@ -54,20 +65,20 @@ Commands:
   run <id>
       Resilient per-task runner (spawned detached by the watchdog; also run by
       hand): worktree isolation, CLI-session resume, usage-limit park,
-      sentinel+commit verification, report + push.
+      sentinel+commit verification. The executor merges its own branch to dev;
+      the runner verifies, stamps the report and cleans up.
   cancel <id>|--all [reason...]
       Cancel pending/running tasks; kills a running runner's process group.
       Cascades to tasks that depend on the cancelled id. Worker-local only.
-  archive <id>
-      Retire a finished (done/cancelled) task: move envelope + prompt to
-      .schedule-tasks-data/{tasks,prompts}/archive/. Reports stay put.
-  merge-batch <batch-id>
-      AUTHOR-side batch finalization: land every done task branch onto the
-      manifest's merge_target (default dev) in dependency order, then push.
+  archive [<batch-id>]
+      AUTHOR-side batch close-out (default: the current batch): every member
+      must be terminal; writes a batch summary report, moves the manifest +
+      envelopes + prompts to archive/, pushes. Ends the batch.
   log <id> [-f]
       Tail a task's run log (replaces the old tmux attach).
   doctor
-      Environment check: node/git/claude/kimi/graphify, machine identity, data dirs.
+      Environment check: node/git/claude/kimi/graphify, skill-copy completeness,
+      old-scheme leftovers, machine identity, data dirs.
   update
       Refresh the skill installation: pull the latest source and re-copy every
       installed platform copy (equivalent to ./install.sh --update).
@@ -76,6 +87,8 @@ Commands:
   version
       Print this skill copy's version (from package.json next to this CLI) —
       handy for telling leftover installs apart.
+  help
+      This help.
 
 Global options:
   -r, --repo <path>   repo to operate on (default: current directory)
@@ -109,13 +122,23 @@ async function main(argv) {
     console.log(pkg.version);
     return 0;
   }
-  if (!command || flags['--help'] || flags['-h']) {
+  if (flags['--help'] || flags['-h'] || command === 'help') {
     process.stdout.write(USAGE);
-    return command ? 0 : 1;
+    return 0;
   }
 
   const repo = core.resolveRepo(cliRepo, process.cwd());
   const config = core.readConfig();
+
+  if (!command) {
+    // The most frequent action: query status in the current repo.
+    const { render, detectMode } = require('./status.js');
+    const autoRoot = config.autoRoot || core.dataDir(repo);
+    const logRoot = config.logRoot || core.logRoot(repo, config);
+    const mode = config.mode || detectMode({ autoRoot, logRoot, mode: '' });
+    process.stdout.write(`${render({ repo, autoRoot, logRoot, mode })}\n`);
+    return 0;
+  }
 
   switch (command) {
     case 'init': {
@@ -168,7 +191,27 @@ async function main(argv) {
       }
       const { runOne } = require('./runner.js');
       const result = await runOne({ repo, id, config });
-      return result.status === 'done' ? 0 : 1;
+      return result.status === 'dev-done' || result.status === 'audit-pass' ? 0 : 1;
+    }
+    case 'dev': {
+      // Gate: one batch at a time. Refuse to open a NEW batch while a batch is
+      // still open — the author must close it with `archive` first.
+      const batch = core.currentBatch(repo);
+      if (batch) {
+        console.error(`dev: current batch ${batch.id} is still open — close it first: schedule-task archive (or finish + audit it)`);
+        return 1;
+      }
+      console.log('dev: no current batch — you may start a new dev batch.');
+      console.log('Draft the envelope(s) + prompt(s) from templates/dev-plan-harness.md +');
+      console.log('templates/harness-common.md (in .schedule-tasks-data/templates/), review,');
+      console.log('then commit them to the inbox branch.');
+      return 0;
+    }
+    case 'audit': {
+      const { audit } = require('./audit.js');
+      const mode = flags['--readonly'] ? 'readonly' : 'edit';
+      const perTask = !flags['--batch'];
+      return audit({ repo, mode, perTask }).exit;
     }
     case 'cancel': {
       const { cancel } = require('./cancel.js');
@@ -183,21 +226,7 @@ async function main(argv) {
     }
     case 'archive': {
       const { archive } = require('./archive.js');
-      const id = args[0];
-      if (!id) {
-        console.error('usage: schedule-task archive <id>');
-        return 2;
-      }
-      return archive({ repo, id }).exit;
-    }
-    case 'merge-batch': {
-      const { mergeBatch } = require('./merge-batch.js');
-      const bid = args[0];
-      if (!bid) {
-        console.error('usage: schedule-task merge-batch <batch-id>');
-        return 2;
-      }
-      return mergeBatch({ repo, batchId: bid }).exit;
+      return archive({ repo, batchId: args[0] }).exit;
     }
     case 'log': {
       const { tailLog } = require('./log.js');

@@ -81,14 +81,14 @@
   <line x1="450" y1="790" x2="450" y2="815" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
 
   <rect x="300" y="820" width="300" height="50" rx="8" fill="#f6f8fa" stroke="#57606a"/>
-  <text x="450" y="843" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">写执行报告</text>
-  <text x="450" y="861" font-size="11" fill="#57606a" text-anchor="middle">结果摘要：完成/失败、重试次数、最后的话</text>
+  <text x="450" y="843" font-size="13.5" font-weight="bold" fill="#1f2328" text-anchor="middle">写开发报告（交接总结）</text>
+  <text x="450" y="861" font-size="11" fill="#57606a" text-anchor="middle">做了什么/改了哪些文件/commit 清单/注意点</text>
 
   <line x1="450" y1="870" x2="450" y2="895" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
 
   <rect x="300" y="900" width="300" height="50" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
-  <text x="450" y="923" font-size="13.5" font-weight="bold" fill="#1a7f37" text-anchor="middle">推送成果 + 记录最终状态</text>
-  <text x="450" y="941" font-size="11" fill="#1a7f37" text-anchor="middle">作者那边一拉就能看到（绝不擅自合并）</text>
+  <text x="450" y="923" font-size="13.5" font-weight="bold" fill="#1a7f37" text-anchor="middle">合并回 dev + 记录状态</text>
+  <text x="450" y="941" font-size="11" fill="#1a7f37" text-anchor="middle">拉最新 dev 解冲突 → ff 合并 → 推 dev（解不了→merge-failed）</text>
 
   <line x1="450" y1="950" x2="450" y2="978" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
 

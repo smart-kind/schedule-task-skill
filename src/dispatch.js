@@ -164,8 +164,9 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
     }
     const id = env.id;
     if (!id) continue;
-    const st = core.readState(stateDir, id);
-    if (st === 'running' || st === 'done' || st === 'failed' || st === 'cancelled') continue;
+    const st = core.normalizeState(core.readState(stateDir, id));
+    if (st === 'running' || st === 'dev-done' || st === 'audit-pass' || st === 'audit-fail'
+        || st === 'merge-failed' || st === 'failed' || st === 'cancelled') continue;
 
     // Machine assignment: a task naming a worker is only launched there.
     const wkr = env.worker || '';
@@ -183,10 +184,10 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
       }
     }
 
-    // depends_on: every listed task id must be done. Missing dep state = not done.
+    // depends_on: every listed task id must be dev-done (or an old `done`).
     let blocked = '';
     for (const dep of env.depends_on || []) {
-      if (core.readState(stateDir, dep) !== 'done') {
+      if (core.normalizeState(core.readState(stateDir, dep)) !== 'dev-done') {
         blocked = dep;
         break;
       }
@@ -213,8 +214,8 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
     launched += 1;
   }
   if (launched === 0) dlog('nothing due');
-  // Workers NEVER merge: batch finalization (landing every done task's branch on
-  // the merge target, in dependency order) is the author's job — merge-batch.
+  // Workers never merge anyone else's work; each executor merges its own branch
+  // to dev (runner fast-forwards) — author-side batch finalization is gone.
   return launched;
 }
 

@@ -45,21 +45,14 @@ function detectMode({ autoRoot, logRoot, mode }) {
   return 'author';
 }
 
-// The task's report body: local copy if present, else the committed copy on
-// origin/<branch> (reports reach the author only via the task branches until merge).
+// The task's report body: local copy if present, else the committed copy on the
+// inbox branch (reports are merged to dev by the worker, so the author reads
+// them from origin/<inbox> after a fetch — no branch awareness needed).
 function reportContent({ repo, autoRoot, taskFile, id }) {
   const local = path.join(autoRoot, 'reports', `${id}.md`);
   if (fs.existsSync(local)) return { ok: true, text: fs.readFileSync(local, 'utf8') };
-  let env;
-  try {
-    env = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
-  } catch {
-    return { ok: false, text: '' };
-  }
-  const br = env.branch || '';
-  if (!br) return { ok: false, text: '' };
   const rel = path.posix.join(path.relative(repo, autoRoot), 'reports', `${id}.md`);
-  return showFile(repo, `origin/${br}`, rel);
+  return showFile(repo, `origin/${core.readConfig().inbox}`, rel);
 }
 
 function reltime(t, now) {
@@ -315,8 +308,8 @@ function taskRow({ repo, autoRoot, logRoot, taskFile, id, archived, mode, live }
 
   const rc = reportContent({ repo, autoRoot, taskFile, id });
   if (rc.ok && rc.text) {
-    const m = /\((done|failed)\)/.exec(rc.text);
-    const state = m ? m[1] : 'done';
+    const m = /\((done|failed|dev-done|merge-failed|audit-pass|audit-fail)\)/.exec(rc.text);
+    const state = m ? core.normalizeState(m[1]) : 'dev-done';
     const finM = /^.*Finished:\s*(.*)$/m.exec(rc.text);
     const attM = /^.*Attempts:\s*(.*)$/m.exec(rc.text);
     let detail = `attempts=${attM ? attM[1].trim() : '?'}; finished=${finM ? finM[1].trim() : '?'}`;
@@ -337,7 +330,7 @@ function render({ repo, autoRoot, logRoot, mode }) {
   const tasksDir = path.join(autoRoot, 'tasks');
 
   say(`schedule-task status  ·  mode: ${mode}  ·  root: ${autoRoot}`);
-  say(`${COL('ID', 34)} ${COL('TYPE', 6)} ${COL('SCHEDULE', 14)} ${COL('STATE', 9)} ${'DETAIL'}`);
+  say(`${COL('ID', 34)} ${COL('TYPE', 6)} ${COL('SCHEDULE', 14)} ${COL('STATE', 12)} ${'DETAIL'}`);
 
   // Pass 1 — compute every task's row once (same logic batched or not).
   const rows = new Map();  // id -> { sortkey, batch, line }
@@ -354,11 +347,12 @@ function render({ repo, autoRoot, logRoot, mode }) {
 
   const liveCache = new Map();
   const liveState = (id) => {
-    if (!liveCache.has(id)) liveCache.set(id, core.readState(stateDir, id));
+    if (!liveCache.has(id)) liveCache.set(id, core.normalizeState(core.readState(stateDir, id)));
     return liveCache.get(id);
   };
 
-  let done = 0; let fail = 0; let run = 0; let pend = 0; let arch = 0; let canc = 0;
+  let devDone = 0; let auditPass = 0; let auditFail = 0; let mergeFailed = 0;
+  let fail = 0; let run = 0; let pend = 0; let arch = 0; let canc = 0;
   for (const tf of taskFiles) {
     let env;
     try {
@@ -382,14 +376,17 @@ function render({ repo, autoRoot, logRoot, mode }) {
     const row = taskRow({ repo, autoRoot, logRoot, taskFile: tf, id, archived, mode, live });
     if (archived && row.state !== 'archived') row.detail += '; ARCHIVED';
     switch (row.state) {
-      case 'done': done += 1; break;
+      case 'dev-done': devDone += 1; break;
+      case 'audit-pass': auditPass += 1; break;
+      case 'audit-fail': auditFail += 1; break;
+      case 'merge-failed': mergeFailed += 1; break;
       case 'failed': fail += 1; break;
       case 'running': run += 1; break;
       case 'archived': arch += 1; break;
       case 'pending': pend += 1; break;
       case 'cancelled': canc += 1; break;
     }
-    const line = `${COL(id, 34)} ${COL(env.type || '', 6)} ${COL(sched, 14)} ${COL(row.state, 9)} ${row.detail}`;
+    const line = `${COL(id, 34)} ${COL(env.type || '', 6)} ${COL(sched, 14)} ${COL(row.state, 12)} ${row.detail}`;
     rows.set(id, { sortkey, batch, line, progress: row.progress, branch: row.branch });
     states.set(id, row.state);
     deps.set(id, env.depends_on || []);
@@ -420,11 +417,11 @@ function render({ repo, autoRoot, logRoot, mode }) {
     let dcnt = 0;
     let nxt = '-';
     for (const tid of tids) {
-      if (states.get(tid) === 'done') dcnt += 1;
-      if (nxt === '-' && !['done', 'failed', 'running', 'cancelled', ''].includes(states.get(tid) || '')) {
+      if (states.get(tid) === 'dev-done') dcnt += 1;
+      if (nxt === '-' && !['dev-done', 'audit-pass', 'audit-fail', 'merge-failed', 'failed', 'running', 'cancelled', ''].includes(states.get(tid) || '')) {
         let ok = true;
         for (const dep of deps.get(tid) || []) {
-          if (states.get(dep) !== 'done') {
+          if (states.get(dep) !== 'dev-done') {
             ok = false;
             break;
           }
@@ -441,7 +438,7 @@ function render({ repo, autoRoot, logRoot, mode }) {
         bstate = '';
       }
     }
-    say(`== batch ${bid}${title ? ` — ${title}` : ''} — ${dcnt}/${total} done, next: ${nxt}${bstate ? `  [${bstate}]` : ''}`);
+    say(`== batch ${bid}${title ? ` — ${title}` : ''} — ${dcnt}/${total} dev-done, next: ${nxt}${bstate ? `  [${bstate}]` : ''}`);
     if (notes) say(`  notes: ${notes.slice(0, 100)}`);
     if (bstate === 'merge-conflict') {
       try {
@@ -485,7 +482,10 @@ function render({ repo, autoRoot, logRoot, mode }) {
     }
   }
 
-  let summary = `${done} done · ${fail} failed · ${run} running · ${pend} pending · ${arch} archived`;
+  let summary = `${devDone} dev-done · ${fail} failed · ${run} running · ${pend} pending · ${arch} archived`;
+  if (auditPass > 0) summary += ` · ${auditPass} audit-pass`;
+  if (auditFail > 0) summary += ` · ${auditFail} audit-fail`;
+  if (mergeFailed > 0) summary += ` · ${mergeFailed} merge-failed`;
   if (canc > 0) summary += ` · ${canc} cancelled`;
   if (batchSegs.length) summary += ` · batches: ${batchSegs.join(' · ')}`;
   if (mode === 'worker') {
@@ -519,22 +519,22 @@ function selfTest() {
     const put = (p, c) => fs.writeFileSync(path.join(tmp, p), c, 'utf8');
     put('tasks/pend-me.json', JSON.stringify({ id: 'pend-me', type: 'dev', schedule: { run_at: fiso } }));
     put('tasks/done-me.json', JSON.stringify({ id: 'done-me', type: 'test', schedule: { run_at: piso } }));
-    put('reports/done-me.md', `# Report — done-me (done)\n- Attempts: 2\n- Finished: ${piso}\n`);
-    core.writeState(path.join(tmp, 'state'), 'done-me', 'done');
+    put('reports/done-me.md', `# Report — done-me (dev-done)\n- Attempts: 2\n- Finished: ${piso}\n`);
+    core.writeState(path.join(tmp, 'state'), 'done-me', 'dev-done');
     put('tasks/run-me.json', JSON.stringify({ id: 'run-me', type: 'dev', schedule: { run_at: piso } }));
     core.writeState(path.join(tmp, 'state'), 'run-me', 'running');
     core.writePid(path.join(tmp, 'state'), 'run-me', process.pid); // live (this process) → tree branch
     fs.writeFileSync(path.join(tmp, 'logs', 'run-me', 'run.log'),
       '[t0] start\n[t1] attempt 1: fresh run\n[t2] [[CHECKPOINT step 3/5]]\n', 'utf8');
     put('tasks/archive/arch-me.json', JSON.stringify({ id: 'arch-me', type: 'audit', schedule: { run_at: piso } }));
-    put('reports/arch-me.md', `# Report — arch-me (done)\n- Attempts: 1\n- Finished: ${piso}\n`);
+    put('reports/arch-me.md', `# Report — arch-me (dev-done)\n- Attempts: 1\n- Finished: ${piso}\n`);
     put('tasks/b-done1.json', JSON.stringify({ id: 'b-done1', type: 'dev', batch: 'p0805', schedule: { run_at: piso } }));
     put('tasks/b-done2.json', JSON.stringify({ id: 'b-done2', type: 'test', batch: 'p0805', schedule: { run_at: piso } }));
     put('tasks/b-pend.json', JSON.stringify({ id: 'b-pend', type: 'dev', batch: 'p0805', depends_on: ['b-done1'], schedule: { run_at: fiso } }));
-    put('reports/b-done1.md', `# Report — b-done1 (done)\n- Attempts: 1\n- Finished: ${piso}\n`);
-    put('reports/b-done2.md', `# Report — b-done2 (done)\n- Attempts: 3\n- Finished: ${piso}\n`);
-    core.writeState(path.join(tmp, 'state'), 'b-done1', 'done');
-    core.writeState(path.join(tmp, 'state'), 'b-done2', 'done');
+    put('reports/b-done1.md', `# Report — b-done1 (done)\n- Attempts: 1\n- Finished: ${piso}\n`); // legacy (done) marker — must normalize
+    put('reports/b-done2.md', `# Report — b-done2 (dev-done)\n- Attempts: 3\n- Finished: ${piso}\n`);
+    core.writeState(path.join(tmp, 'state'), 'b-done1', 'dev-done');
+    core.writeState(path.join(tmp, 'state'), 'b-done2', 'dev-done');
     fs.writeFileSync(path.join(tmp, 'state', 'b-done1.notes'),
       `[${piso}] attempt 1 failed: lint\n[${piso}] attempt 2 ok\n[${piso}] done, report written\n`, 'utf8');
     put('batches/p0805.json', JSON.stringify({ id: 'p0805', title: 'P0805 flight', notes: 'retreat + formation + paint', tasks: ['b-done1', 'b-done2', 'b-pend'], merge_target: 'dev' }));
@@ -563,16 +563,16 @@ function selfTest() {
     let out = render({ repo: tmp, autoRoot: tmp, logRoot: path.join(tmp, 'logs'), mode: 'worker' });
     console.log('[worker mode]');
     check('pending row', out, /pend-me .* pending/);
-    check('done row', out, /done-me .* done .*attempts=2/);
+    check('done row', out, /done-me .* dev-done .*attempts=2/);
     check('running row', out, /run-me .* running .*CHECKPOINT step 3\/5/);
     check('running row: executor agent/model', out, /run-me .* running .*claude\/opus/);
     check_absent('no commit block without worktree', out, /提交 \(/);
     check('process tree lists live running task', out, /processes:[\s\S]*run run-me \(/);
-    check('archived row', out, /arch-me .* done .*ARCHIVED/);
-    check('counts line', out, /4 done · 0 failed · 1 running · 3 pending/);
-    check('batch header: title + 2/3', out, /== batch p0805 — P0805 flight — 2\/3 done/);
+    check('archived row', out, /arch-me .* dev-done .*ARCHIVED/);
+    check('counts line', out, /4 dev-done · 0 failed · 1 running · 3 pending · 0 archived/);
+    check('batch header: title + 2/3', out, /== batch p0805 — P0805 flight — 2\/3 dev-done/);
     check('batch header: next task', out, /next: b-pend/);
-    check('blocked dep is not next', out, /== batch tip1 — Tip1 blocked — 0\/1 done, next: -$/m);
+    check('blocked dep is not next', out, /== batch tip1 — Tip1 blocked — 0\/1 dev-done, next: -$/m);
     check('batch header: merge-conflict', out, /== batch p0805 .*\[merge-conflict\]/);
     check('batch conflict note line', out, /batch-note: .*CONFLICT in src\/game\.js/);
     check('manifest notes line', out, /  notes: retreat \+ formation \+ paint/);
@@ -583,7 +583,7 @@ function selfTest() {
     check('ungrouped section renders', out, /\(ungrouped\)/);
     check('summary batches segment', out, /batches: canc1 0\/1 · p0805 2\/3 · tip1 0\/1/);
     check('cancelled row', out, /g-canc .* cancelled/);
-    check('cancelled task is never next', out, /== batch canc1 — Cancelled batch — 0\/1 done, next: -$/m);
+    check('cancelled task is never next', out, /== batch canc1 — Cancelled batch — 0\/1 dev-done, next: -$/m);
     check('counts: cancelled segment', out, /· 1 cancelled/);
 
     function check_absent(desc, o, re) {
@@ -600,9 +600,9 @@ function selfTest() {
     out = render({ repo: tmp, autoRoot: tmp, logRoot: path.join(tmp, 'nope'), mode: 'author' });
     console.log('[author mode — no live state]');
     check('running falls back to pending', out, /run-me .* pending/);
-    check('done still done', out, /done-me .* done/);
+    check('done still dev-done', out, /done-me .* dev-done/);
     check('pending still pending', out, /pend-me .* pending/);
-    check('batch header in author mode', out, /== batch p0805 — P0805 flight — 2\/3 done/);
+    check('batch header in author mode', out, /== batch p0805 — P0805 flight — 2\/3 dev-done/);
     check_absent('no batch runtime state in author', out, /merge-conflict/);
     check_absent('no worker notes in author', out, /    note:/);
 

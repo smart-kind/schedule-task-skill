@@ -177,16 +177,93 @@ async function runOne({ repo, id, config }) {
     await core.sleep(config.ambiguousSleep * 1000);
   }
 
-  // --- finalize: capture any leftover work, write report, push, record state ---
+  // --- finalize: stamp the report, verify the merge, record state, clean up ---
   git(wt, ['add', '-A']);
   git(wt, ['commit', '-m', `task ${id}: autosave uncommitted work`]);
   const commitAfter = headSha(wt);
+  const finished = sawSentinel && commitAfter !== commitBefore;
 
-  const status = sawSentinel && commitAfter !== commitBefore ? 'done' : 'failed';
+  const inbox = config.inbox;
+  const type = env.type || 'dev';
+  const reportRel = path.join('.schedule-tasks-data', 'reports', `${id}.md`);
+  const reportFile = path.join(wt, reportRel);
 
-  // Executor final message: the last 60 result events across every attempt file.
+  // Executor final message (fallback body when the executor wrote no report).
+  const tail = lastExecutorMessage(logDir);
+
+  // v3 flow: the executor integrated the latest dev into its branch (rebase,
+  // conflicts resolved in ITS worktree) and committed the report. The runner
+  // verifies mechanically that dev is an ancestor of the branch — then the
+  // merge is a conflict-free fast-forward, done in the main checkout.
+  let state;
+  let merged = false;
+  if (finished) {
+    git(repo, ['fetch', 'origin', inbox]);
+    merged = git(repo, ['merge-base', '--is-ancestor', `origin/${inbox}`, branch]).ok;
+    state = merged
+      ? (type === 'audit' ? 'audit-pass' : 'dev-done')
+      : (type === 'audit' ? 'audit-fail' : 'merge-failed');
+  } else {
+    // Never finished (or audit verdict = fail): the branch is pushed for the
+    // author; nothing is merged, the worktree stays for inspection.
+    state = type === 'audit' ? 'audit-fail' : 'failed';
+  }
+
+  // Stamp the report: the runner owns the H1 state marker + metadata; the
+  // executor's body is preserved underneath. Lands on the task branch.
+  stampReport(reportFile, id, state, attempt, tail);
+  git(wt, ['add', '-A']);
+  git(wt, ['commit', '-m', `report: task ${id} (${state})`]);
+
+  if (merged) {
+    // Fast-forward dev onto the branch (main checkout is on dev) and push.
+    if (!git(repo, ['checkout', inbox]).ok) log(`checkout ${inbox} failed`);
+    git(repo, ['merge', '--ff-only', `origin/${inbox}`]);
+    if (git(repo, ['merge', '--ff-only', branch]).ok) {
+      const pd = git(repo, ['push', 'origin', inbox]);
+      if (!pd.ok) log(`push ${inbox} failed (non-fatal)`);
+    } else {
+      // Race: dev advanced after the ancestor check. Never force a merge.
+      git(repo, ['merge', '--abort']);
+      state = type === 'audit' ? 'audit-fail' : 'merge-failed';
+      merged = false;
+      log('ff merge into ' + inbox + ' failed (dev advanced) — marking ' + state);
+    }
+  }
+
+  if (merged) {
+    // Clean up the task's workspace: worktree + local branch are disposable.
+    if (git(repo, ['worktree', 'remove', '--force', wt]).ok) {
+      git(repo, ['branch', '-D', branch]);
+      log(`merged into ${inbox}; cleaned up worktree + branch ${branch}`);
+    } else {
+      log(`merged into ${inbox}; worktree remove failed (left in place)`);
+    }
+  } else {
+    // Failure / merge-failed / audit-fail: keep the workspace, push the branch
+    // so the author can inspect or re-dispatch against it.
+    const p = git(repo, ['push', 'origin', branch]);
+    if (!p.ok) log(`push ${branch} failed (non-fatal)`);
+    log(`kept worktree + pushed branch ${branch} (${state})`);
+  }
+
+  core.writeState(stateDir, id, state);
+  log(`finished status=${state} before=${commitBefore} after=${commitAfter} merged=${merged} attempts=${attempt}`);
+  note(`finished ${state} attempts=${attempt} before=${commitBefore} after=${commitAfter} merged=${merged}`);
+  notify(state, `attempts=${attempt} commit=${commitAfter}`);
+  return { status: state };
+}
+
+// Executor final message: the last 60 result events across every attempt file.
+function lastExecutorMessage(logDir) {
   const results = [];
-  for (const f of fs.readdirSync(logDir).filter((n) => /^attempt-.*\.jsonl$/.test(n)).sort()) {
+  let files = [];
+  try {
+    files = fs.readdirSync(logDir).filter((n) => /^attempt-.*\.jsonl$/.test(n)).sort();
+  } catch {
+    files = [];
+  }
+  for (const f of files) {
     for (const line of fs.readFileSync(path.join(logDir, f), 'utf8').split('\n')) {
       let obj;
       try {
@@ -197,38 +274,33 @@ async function runOne({ repo, id, config }) {
       if (obj && obj.type === 'result' && obj.result) results.push(String(obj.result));
     }
   }
-  const tail = results.slice(-60).join('\n');
+  return results.slice(-60).join('\n');
+}
 
-  const reportRel = path.join('.schedule-tasks-data', 'reports', `${id}.md`);
-  const reportFile = path.join(wt, reportRel);
+// Rewrite the report file: the runner owns the first line (`# Report — <id> (<state>)`)
+// and the trailing metadata; the executor's body (anything after its own leading
+// `# Report` line) is preserved verbatim.
+function stampReport(reportFile, id, state, attempt, tail) {
   core.ensureDir(path.dirname(reportFile));
-  const report = [
-    `# Report — ${id} (${status})`,
+  let body = '';
+  try {
+    body = fs.readFileSync(reportFile, 'utf8');
+  } catch {
+    body = '';
+  }
+  const lines = body.split('\n');
+  const start = lines.length && /^# Report/.test(lines[0]) ? 1 : 0;
+  const rest = lines.slice(start).join('\n').trim();
+  const parts = [
+    `# Report — ${id} (${state})`,
     '',
-    `- Branch: \`${branch}\``,
-    `- Commit before: \`${commitBefore}\``,
-    `- Commit after:  \`${commitAfter}\``,
     `- Attempts: ${attempt}`,
     `- Finished: ${core.ts()}`,
     '',
-    '## Executor final message',
-    '```',
-    tail,
-    '```',
-    '',
-  ].join('\n');
-  fs.writeFileSync(reportFile, report, 'utf8');
-
-  git(wt, ['add', '-A']);
-  git(wt, ['commit', '-m', `report: task ${id} (${status})`]);
-  const pushed = git(repo, ['push', 'origin', branch]);
-  if (!pushed.ok) log(`push ${branch} failed (non-fatal)`);
-
-  core.writeState(stateDir, id, status);
-  log(`finished status=${status} before=${commitBefore} after=${commitAfter} attempts=${attempt}`);
-  note(`finished ${status} attempts=${attempt} before=${commitBefore} after=${commitAfter}`);
-  notify(status, `attempts=${attempt} commit=${commitAfter}`);
-  return { status };
+  ];
+  if (rest) parts.push(rest, '');
+  if (tail && !rest) parts.push('## Executor final message', '```', tail, '```', '');
+  fs.writeFileSync(reportFile, parts.join('\n'), 'utf8');
 }
 
 module.exports = { runOne };

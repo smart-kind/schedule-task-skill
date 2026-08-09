@@ -15,15 +15,15 @@ belongs to its batch via the `batch` field (the full batch id), never via the id
 | Field | Required | Consumed by | Semantics |
 |---|---|---|---|
 | `id` | yes | dispatch, runner, status | Task identity. Must equal the envelope filename (minus `.json`). Used for state files, logs, report name, and the `[[TASK_DONE <id> ...]]` sentinel. |
-| `type` | yes | label only | `dev` \| `test` \| `audit`. A routing/report label shown by status; changes no behavior. |
-| `worker` | no | dispatch (eligibility) | Which machine executes the task: the machine id configured at `init` in `.schedule-tasks-data/state/.machine` (default hostname). dispatch only launches tasks whose `worker` equals its own id. **Absent = any worker may take it** (single-worker setups can ignore it). A batch may split its tasks across several workers — each runs its own branches in parallel; merging is always the author's. |
+| `type` | yes | label only | `dev` \| `audit` (legacy `test` labels still parse). A routing/report label shown by status; changes no behavior. `dev`/`audit` are created by the matching subcommand flow. |
+| `worker` | no | dispatch (eligibility) | Which machine executes the task: the machine id configured at `init` in `.schedule-tasks-data/state/.machine` (default hostname). dispatch only launches tasks whose `worker` equals its own id. **Absent = any worker may take it** (single-worker setups can ignore it). A batch may split its tasks across several workers — each executor merges its OWN work back to `dev`. |
 | `repo` | no | **no command reads it** | Human/documentation label for the target repo path. Kept for provenance only — the runner always operates on the repo the dispatcher lives in. |
-| `branch` | yes | runner, status, merge-batch | The task's own branch, e.g. `automation/<id>`. The runner cuts/reuses it from the local inbox-branch tip inside an isolated git worktree, commits results there, and pushes it. One branch per task — never `main`/`dev`. (The `automation/` prefix is kept for continuity with in-flight tasks; it is unrelated to the data dir name.) |
+| `branch` | yes | runner, status | The task's own branch, e.g. `automation/<id>`. The runner cuts/reuses it from the local inbox-branch tip inside an isolated git worktree, commits results there. It is a disposable workspace: on success the runner fast-forwards `dev` to it and deletes worktree + branch; on failure it is pushed for the author. One branch per task — never `main`/`dev`. (The `automation/` prefix is kept for continuity with in-flight tasks; it is unrelated to the data dir name.) |
 | `prompt_file` | yes | runner | Repo-relative path to the plan-harness prompt, resolved **inside the worktree** — so it must be committed to the inbox branch before dispatch, not just present on the author's disk. Default convention: `.schedule-tasks-data/prompts/<id>.md`. |
 | `schedule.run_at` | yes | dispatch | ISO-8601 UTC one-shot (e.g. `2026-08-05T02:00:00Z`). The task is eligible once `now >= run_at`. One-shot only — recurring `cron` schedules are not supported. |
 | `model` | no | runner | CLI-specific model alias passed to the executor (e.g. `opus`). Meaning depends on the `agent` profile. Defaults to the profile's built-in default when absent. |
 | `agent` | no | runner → agents.js | Which coding-agent CLI executes the task: `"claude"` (default when absent) or `"kimi"`. runner routes the prompt through `agents.invoke(...)`; see `references/architecture.md`. |
-| `batch` | no | status (grouping), merge-batch (finalization) | The full batch id (see convention above) of the batch this task belongs to. Tasks sharing a `batch` are a unit: status groups them; the author's `merge-batch` lands all done branches on `merge_target` together. Absent = single-task batch. |
+| `batch` | no | status (grouping), audit + archive (current batch) | The full batch id (see convention above) of the batch this task belongs to. Tasks sharing a `batch` are a unit: status groups them; `audit` audits the batch's dev-done members; `archive` closes the whole batch. Absent = single-task batch. |
 | `depends_on` | no | dispatch (eligibility) | Array of task ids that must all be in state `done` before this task is eligible, regardless of `run_at`. Absent/empty = no dependencies. |
 
 Backwards compatibility: an old envelope with none of `batch` / `worker` / `depends_on` / `agent`
@@ -34,7 +34,9 @@ the `claude` profile — semantics unchanged. Old envelopes whose `prompt_file` 
 ## Batch manifest — `.schedule-tasks-data/batches/<batch>.json`
 
 Committed to git (author-side durable record); created only when a pass authors more than one
-task. Read by the author's merge-batch for finalization and by status for grouped rendering.
+task. Read by `audit` (which dev-done members to review) and `archive` (batch close-out), and
+by status for grouped rendering. The current batch = the newest non-archived manifest (the
+system runs one batch at a time).
 
 ```json
 {
@@ -51,12 +53,12 @@ task. Read by the author's merge-batch for finalization and by status for groupe
 | `id` | The batch id — equals the `batch` field on each member envelope. Filename is `<id>.json`. |
 | `title` | Short human label, shown in status output. |
 | `notes` | Free text. Also surfaced by status. |
-| `tasks` | Member task ids **in dependency order** — the author's merge-batch lands their branches in this order. |
-| `merge_target` | Branch the author's merge-batch lands the finished batch onto (default/typical `dev`). |
+| `tasks` | Member task ids **in dependency order**. |
+| `merge_target` | Legacy: kept for compatibility, no longer consumed — workers merge their own work to the inbox branch (default `dev`) directly. |
 
-Finalization is the **author's** job: `schedule-task merge-batch <id>` fetches origin, merges
-every task branch whose committed report says `(done)` onto `merge_target` in `tasks` order, and
-pushes. Workers never merge.
+Batch lifecycle is author-driven: `audit` reviews the dev-done members; `archive` closes the
+batch once every member is terminal (moves the manifest + envelopes + prompts to `archive/`,
+writes the batch summary report, and empties the current batch).
 
 ## State files — `.schedule-tasks-data/state/` (gitignored, worker-local)
 
@@ -64,8 +66,9 @@ pushes. Workers never merge.
   (default hostname). The watchdog exits immediately unless `role=worker`; envelope `.worker` is
   matched against `id`. status uses it for mode detection.
 - `state/<id>` — the first line is the state word. This contract is load-bearing (status and
-  archive parse it): `pending` (implicit — no file exists), `running`, `done`, `failed`,
-  `cancelled` (via cancel).
+  archive parse it): `pending` (implicit — no file exists), `running`, `dev-done`,
+  `merge-failed`, `audit-pass`, `audit-fail`, `failed`, `cancelled`. The v1–v2 word `done` is
+  normalized to `dev-done` everywhere.
 - `state/<id>.notes` — append-only free text. runner appends one timestamped line at each
   milestone (start, every attempt, limit-wait, done, failed); cancel appends the cancel reason.
   Humans may append lines too. Never edited in place, never truncated by the runtime.
@@ -80,5 +83,5 @@ pushes. Workers never merge.
   never serialize each other.
 
 Because `state/` is gitignored, it never crosses the git bus: the author box infers state from
-the committed `reports/<id>.md` on each task branch — read locally after a merge, or directly
-from `origin/<branch>` via status (see `references/operations.md`).
+the committed `reports/<id>.md` **merged to the inbox branch (`dev`)** — read locally after a
+pull, or directly from `origin/<inbox>` via status (see `references/operations.md`).
