@@ -62,7 +62,7 @@ Throughout the rest of this README, `schedule-task <cmd>` is shorthand for
 Pick your install path:
 
 - **At a terminal and want to read the source** → **Option A**
-- **Want an AI agent to install it for you** → **Option B** (send your agent this exact prompt: `Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions.`)
+- **Want an AI agent to install or update it for you** → **Option B** (send your agent this exact prompt: `Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions. If the skill is already installed here, run install.sh with --update to refresh it.`)
 - **At a terminal, one-liner only** → **Option C**
 
 **Option A — clone then install** (if you want to read the source):
@@ -76,17 +76,22 @@ cd ~/schedule-task
 **Option B — let an AI agent install it for you.** In your agent (Kimi Code, Claude Code,
 Codex, …), say:
 
-> Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions.
+> Install this skill for me: https://github.com/smart-kind/schedule-task-skill — read README.md first, then follow its install instructions. If the skill is already installed here, run install.sh with `--update` to refresh it.
 
 When your agent receives the prompt above, it automatically reads this README, fetches
-`install.sh`, detects its own platform, and runs it with the matching `--platform` flag —
-no clone, no inspection, no interactive answers, and no need for you to say what you are
-on. A human at a terminal instead uses the pipe form in Option C.
+`install.sh`, detects its own platform, and runs it with the matching `--platform` flag (plus
+`--update` when the skill is already installed, so existing copies are refreshed instead of
+skipped) — no clone, no inspection, no interactive answers, and no need for you to say what
+you are on. A human at a terminal instead uses the pipe form in Option C.
 
-**Option C — manual install, one curl command** (public repo; the script clones itself):
+**Option C — manual install / update, one curl command** (public repo; the script clones itself):
 
 ```bash
+# install (or refresh the source) — copies into the detected platforms:
 curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash
+
+# update an existing install (replaces the installed copies with the latest source):
+curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash -s -- --update
 ```
 
 ### install.sh flags
@@ -108,9 +113,9 @@ With no flags and a terminal, `install.sh` asks which platform(s) to use. Then i
 2. Prints how to run the CLI from each copy — `node <skill-dir>/bin/schedule-task.js <cmd>`.
    There is nothing else to install.
 
-**Update later:** edit the skill source repo, commit and release, then run
-`./install.sh --update` in a source checkout (or re-run the curl line) on each machine — it
-refreshes the source and re-copies the skill dirs in place. Old symlink installs from the
+**Update later:** edit the skill source repo, commit and release, then on each machine re-run
+`./install.sh --update` in a source checkout, or use the `--update` curl one-liner in Option C —
+the source is refreshed and the skill dirs are re-copied in place. Old symlink installs from the
 previous version are never silently converted: install prints a hint (`use --update`, or delete
 the symlink by hand and reinstall).
 
