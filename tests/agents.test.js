@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { invoke, parseResetEpoch } = require('../src/agents.js');
+const { invoke, parseResetEpoch, KNOWN_AGENTS } = require('../src/agents.js');
 const { readConfig } = require('../src/core.js');
 
 function fake(t, name, code) {
@@ -92,6 +92,19 @@ test('(d) kimi normal: rc 0', async () => {
     const r = await invoke({ agent: 'kimi', mode: 'resume', model: 'kimi-k2', sessionId: 'ksess-1', prompt: 'continue', cwd: process.cwd(), attemptFile: path.join(t, 's4.jsonl'), sentinel: null, config: readConfig() });
     assert.equal(r.rc, 0);
     assert.equal(r.sessionId, 'ksess-1');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+test('(d) unknown agent is rejected, never silently routed to kimi', async () => {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'schedtask-agents-'));
+  try {
+    assert.deepEqual(KNOWN_AGENTS, ['claude', 'kimi']);
+    const r = await invoke({ agent: 'codex', ...invokeArgs({ t }) });
+    assert.equal(r.rc, 127);
+    assert.match(r.stderr, /unknown agent 'codex'/);
+    assert.equal(r.sessionId, null);
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }

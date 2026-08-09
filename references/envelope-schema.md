@@ -85,3 +85,22 @@ writes the batch summary report, and empties the current batch).
 Because `state/` is gitignored, it never crosses the git bus: the author box infers state from
 the committed `reports/<id>.md` **merged to the inbox branch (`dev`)** — read locally after a
 pull, or directly from `origin/<inbox>` via status (see `references/operations.md`).
+
+## Data schema version — `.schedule-tasks-data/version` (committed)
+
+The data-format contract. A single integer, written by `init` (fresh installs) and upgraded by
+`schedule-task migrate`; it rides git with the data (never inside `state/`). It is **not** the
+package version — `package.json` bumps on any code change, this file only when the envelope /
+prompt / report / state formats change.
+
+The rule (`src/core.js` `schemaCheck`, compared against the CLI's compile-time `SCHEMA_VERSION`):
+
+- data **<** CLI → legacy/stale: `status`/`doctor` warn and keep working; write commands
+  (`run`/`audit`/`cancel`/`archive`) hard-stop with a hint to run `schedule-task migrate`.
+- data **>** CLI → the CLI is too old to read the data safely: refuse and upgrade the CLI
+  (`install.sh --update`).
+- equal → normal operation.
+
+`migrate` is deterministic (no AI) — commit the current state first, run it, and rollback is a
+git revert. v0 (unversioned, pre-3.1.0) → v1 only stamps the version file; the formats
+themselves did not change in that release.

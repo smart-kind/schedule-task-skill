@@ -1,11 +1,13 @@
 # schedule-task
 
-A SKILL.md-compatible skill that teaches any coding agent CLI (Kimi Code, Codex, Claude Code) to
+A SKILL.md-compatible skill that any coding agent CLI (Kimi Code, Claude Code, Codex) can load to
 author **scheduled, resumable automation tasks** — dev / test / audit — that a deterministic
 watchdog executes unattended on a worker box (e.g. a VPS). You describe the work in natural
 language from any repo; the skill produces a routing envelope + a plan-harness prompt (plus a
 batch manifest for multi-task requests), commits them to the repo's inbox branch, and the worker
 picks them up at the scheduled time, survives usage-limit windows, and pushes back results.
+Authoring is agent-neutral (any SKILL.md-compatible agent); execution is not — the worker runs
+tasks through the `claude` or `kimi` executor CLIs only (see `references/envelope-schema.md`).
 
 Git is the only channel: you push *intent*, workers merge *results* back to `dev`.
 
@@ -92,7 +94,7 @@ you are on. A human at a terminal instead uses the pipe form in Option C.
 # install (or refresh the source) — copies into the detected platforms:
 curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash
 
-# update an existing install (replaces the installed copies with the latest source):
+# update an existing install (refresh the global CLI + replace the installed copies):
 curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main/install.sh | bash -s -- --update
 ```
 
@@ -103,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/smart-kind/schedule-task-skill/main
 | `--platform=kimi-code,claude,agents` (or `all`) | Which agent platform(s) to install the skill into. For unattended/AI installs pass exactly the platform the script runs under — no prompts. |
 | `--yes` | Skip all prompts (installs into every detected platform when `--platform` is absent). |
 | `--dry-run` | Print what would happen without changing anything. |
-| `--update` | Refresh the source, re-copy the skill dirs (replacing installed copies in place). |
+| `--update` | Refresh the source, re-run `npm install -g` for the global CLI, and re-copy the skill dirs (replacing installed copies in place). |
 
 With no flags and a terminal, `install.sh` asks which platform(s) to use. Then it:
 
@@ -138,7 +140,8 @@ symlink leftover from older versions is never silently converted: install prints
    this machine is (role `author` or `worker`) and its machine id, writes
    `.schedule-tasks-data/state/.machine` (gitignored), creates the data directories
    `.schedule-tasks-data/{tasks,prompts,reports,batches,state,templates,hooks}/` with a no-op
-   `hooks/notify.sh`, merges the gitignore snippet, checks dependencies (`node`, `git`, plus
+   `hooks/notify.sh`, stamps the committed data schema version (`.schedule-tasks-data/version`),
+   merges the gitignore snippet, checks dependencies (`node`, `git`, plus
    `claude` or `kimi`), and — only for a `worker` — prints the watchdog command:
    ```
    schedule-task watchdog start --repo <repo>
@@ -169,7 +172,7 @@ symlink leftover from older versions is never silently converted: install prints
 
 ```
 schedule-task/
-├── SKILL.md                  # the skill: status (default) / dev / audit / archive / init / watchdog / cancel / log / doctor / version
+├── SKILL.md                  # the skill: status (default) / dev / audit / archive / init / watchdog / cancel / log / migrate / doctor / update / version
 ├── README.md                 # this file
 ├── package.json              # zero runtime deps; bin → bin/schedule-task.js; npm test
 ├── install.sh                # three-layer install: global CLI (npm install -g) + knowledge skill copies
@@ -197,7 +200,7 @@ schedule-task/
 │   └── hooks/notify.sh       # default no-op hook (copied per repo at init)
 ├── references/
 │   ├── envelope-schema.md    # tasks/<id>.json + batches/<batch>.json + state contract
-│   ├── architecture.md       # two-layer design, topology, invariants, agent router
+│   ├── architecture.md       # runtime design (trigger/driver layers) + three-layer install topology
 │   └── operations.md         # logs, watching, stuck-task recovery, notify hook
 └── tests/                    # node:test suite (no VPS, no network, mock agent CLI)
 ```
@@ -254,6 +257,10 @@ init` writes the current schema version.
   contract is preserved; v3 adds `dev-done` / `merge-failed` / `audit-pass` / `audit-fail` and
   reads legacy `done` as `dev-done`, so older tooling reading those files keeps working.
 - `FL_MAX_CONCURRENCY=1` restores the old fully-serial dispatch behavior; the default is 2.
+- **Unversioned data dirs keep working for reads.** A `.schedule-tasks-data/` without a
+  `version` file (pre-3.1.0) is treated as legacy schema v0: `status`/`doctor` warn and continue,
+  write commands (`run`/`audit`/`cancel`/`archive`) hard-stop with a hint until
+  `schedule-task migrate` stamps the version (commit first — rollback is a git revert).
 - The old bash runtime is preserved in git history (`automation/*.sh` on `main`).
 
 ## More

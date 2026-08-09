@@ -50,6 +50,12 @@ async function runOne({ repo, id, config }) {
   const promptRel = env.prompt_file;
   const model = env.model || 'opus';
   const agent = env.agent || 'claude'; // absent = claude (back-compat)
+  if (!agents.KNOWN_AGENTS.includes(agent)) {
+    // Fail fast — never let an unknown agent silently run (or retry 60x).
+    core.writeState(stateDir, id, 'failed');
+    log(`unknown agent '${agent}' (want ${agents.KNOWN_AGENTS.join('|')})`);
+    return { status: 'failed' };
+  }
   const sentinel = `[[TASK_DONE ${id}`;
 
   core.writePid(stateDir, id, process.pid); // cancel kills the process group via this

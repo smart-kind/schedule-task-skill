@@ -83,15 +83,17 @@ Commands:
       matches the CLI; read commands keep working with a warning.
   doctor
       Environment check: node/git/claude/kimi/graphify, skill-copy completeness,
-      old-scheme leftovers, machine identity, data dirs.
+      the runtime CLI (npm-global \`schedule-task\` + version match), ~/.local/bin
+      symlink leftovers, machine identity, data dirs, data schema version.
   update
-      Refresh the skill installation: pull the latest source and re-copy every
-      installed platform copy (equivalent to ./install.sh --update).
+      Refresh the whole installation: pull the latest source, re-run npm install
+      -g for the global CLI, and re-copy every installed platform copy
+      (equivalent to ./install.sh --update).
   self-test
       Run the full node:test suite (same as \`npm test\`).
   version
-      Print this skill copy's version (from package.json next to this CLI) —
-      handy for telling leftover installs apart.
+      Print the CLI version (from package.json next to this CLI) — the same
+      number status/doctor show in the \`CLI vX · data schema vY\` line.
   help
       This help.
 

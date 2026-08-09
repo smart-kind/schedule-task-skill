@@ -54,7 +54,7 @@
 - install.sh 无法迁移数据——它不知道有多少项目用了技能。
 - 技能被触发时，agent 做一次**轻量版本检查**（`schedule-task doctor` / 或 status 输出里带 `CLI vX · data schema vY`）：
   - **只读命令**（status / doctor / log）：显示迁移警告，但继续执行——避免"看不到状态就无法决定迁移"的死锁。
-  - **写命令**（run / merge-batch / cancel / archive）：检测到未迁移，**硬停止**，提示先跑 `schedule-task migrate`。
+  - **写命令**（run / audit / cancel / archive）：检测到未迁移，**硬停止**，提示先跑 `schedule-task migrate`。
 - `migrate` 由 CLI 提供确定性迁移逻辑（无 AI）；agent 只负责"发现 + 决定 + 在安全窗口执行"（迁移前先 commit 现状，可回滚）。
 
 ## 6. 运行中任务隔离：入口预加载全部模块（不打包）

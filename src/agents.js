@@ -23,6 +23,10 @@ const KIMI_LIMIT_RE = /APIProviderRateLimitError|"status_code":429|rate limit/;
 const EPOCH_RE = /\b\d{10}\b/;
 const CLOCK_RE = /resets?\s+(\d{1,2})\s?(am|pm)/i;
 
+// The only executor CLIs the runtime knows. Every other value is rejected —
+// an envelope `"agent": "codex"` must fail loudly, never silently route to kimi.
+const KNOWN_AGENTS = ['claude', 'kimi'];
+
 function claudeArgs(mode, model, sessionId, prompt) {
   const args = ['-p', prompt, '--model', model, '--fallback-model', 'sonnet',
     '--dangerously-skip-permissions', '--output-format', 'stream-json', '--verbose'];
@@ -88,6 +92,12 @@ function parseResetEpoch(text, nowSeconds) {
  *          sentinelHit:boolean, stderr:string}>}
  */
 function invoke({ agent, mode, model, sessionId, prompt, cwd, attemptFile, sentinel, config }) {
+  if (!KNOWN_AGENTS.includes(agent)) {
+    return Promise.resolve({
+      rc: 127, sessionId: null, resetEpoch: 0, sentinelHit: false,
+      stderr: `agents: unknown agent '${agent}' (want ${KNOWN_AGENTS.join('|')})`,
+    });
+  }
   const bin = agent === 'claude' ? config.claudeBin : config.kimiBin;
   const args = agent === 'claude'
     ? claudeArgs(mode, model, sessionId, prompt)
@@ -147,4 +157,4 @@ function invoke({ agent, mode, model, sessionId, prompt, cwd, attemptFile, senti
   });
 }
 
-module.exports = { invoke, parseResetEpoch, extractSessionId };
+module.exports = { invoke, parseResetEpoch, extractSessionId, KNOWN_AGENTS };
