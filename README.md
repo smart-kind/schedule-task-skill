@@ -204,6 +204,32 @@ Two version numbers are managed separately:
 current state first, then run it — rollback is a git revert. On a fresh repo, `schedule-task
 init` writes the current schema version.
 
+## Roadmap
+
+Planned but **not implemented yet** — the full design lives in `docs/notify-plan.md`. The
+chat-channel boundary is deliberately **notify + read-only query**: the channel lets you *see*,
+never *operate*. Write operations (cancel / dev / audit / archive) stay on the CLI's controlled
+surface.
+
+**Stage 1 — push notifications (single-direction)**
+- A unified `src/notify.js` pipeline: per-task filtering (group × level), channel routing, per-task threading.
+- Channel adapters over a single **Bot + chat/channel ID** contract — Mattermost (primary),
+  Slack, Telegram. Unconfigured channels are silently skipped. Zero new dependencies (Node `fetch`).
+- Events grouped `runner` / `worker`, leveled `info` / `report` / `decision` / `critical`:
+  task start, watchdog launch, limit-wait, ambiguous retry, executor `[[DECISION]]` reports,
+  completion summaries, failures, cancellation.
+- Per-task opt-in via the envelope `notify` node; credentials live in gitignored
+  `state/notify.env`. Threaded messages per task; heartbeat summaries when a task goes quiet.
+
+**Stage 2 — read-only query bot (duplex)**
+- A resident receiver (slash command / outgoing webhook / WebSocket) answering `/status`,
+  `/log <id>` (and `/doctor`) against the bound repo. Deterministic: run the read-only
+  subcommand, format the reply (CLI output first, later `--json` + template rendering) — **no LLM**.
+
+**Explicitly out of scope** — write control through the chat channel (cancel / re-dispatch / plan
+changes): an auth/conflict/audit state machine for a low-frequency operation that the CLI already
+covers, so it stays off the channel.
+
 ## More
 
 - Authoring tasks: read `SKILL.md` (or just ask your agent to schedule something).
