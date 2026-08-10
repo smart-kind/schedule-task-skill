@@ -206,10 +206,14 @@ init` writes the current schema version.
 
 ## Roadmap
 
-Planned but **not implemented yet** — the full design lives in `docs/notify-plan.md`. The
-chat-channel boundary is deliberately **notify + read-only query**: the channel lets you *see*,
-never *operate*. Write operations (cancel / dev / audit / archive) stay on the CLI's controlled
-surface.
+Planned but **not implemented yet** — designs live in `docs/notify-plan.md` and
+`docs/dispatch-plan.md`.
+
+### Notifications & read-only query (`docs/notify-plan.md`)
+
+The chat-channel boundary is deliberately **notify + read-only query**: the channel lets you
+*see*, never *operate*. Write operations (cancel / dev / audit / archive) stay on the CLI's
+controlled surface.
 
 **Stage 1 — push notifications (single-direction)**
 - A unified `src/notify.js` pipeline: per-task filtering (group × level), channel routing, per-task threading.
@@ -229,6 +233,20 @@ surface.
 **Explicitly out of scope** — write control through the chat channel (cancel / re-dispatch / plan
 changes): an auth/conflict/audit state machine for a low-frequency operation that the CLI already
 covers, so it stays off the channel.
+
+### Elastic dispatch v2 (`docs/dispatch-plan.md`)
+
+Fix worker under-fill and task pile-up by replacing hand-scheduled static `run_at` grids with
+elastic dispatch:
+
+- **`run_at` becomes optional** — absent = start as soon as dependencies are ready (earliest);
+  when set, it stays a *not-before* lower bound. Most tasks no longer need a scheduled time.
+- **New `spacing_minutes`** (default 10, `0` to disable): minimum interval between task starts
+  on the same worker — replaces hand-tuned hour-gaps, avoids limit-clustering, and keeps the
+  worker busy back-to-back.
+- **Overdue visibility** — `status` marks tasks whose `run_at` has passed but that have not run
+  (with how long overdue); stale tasks are still executed ASAP, never auto-cancelled.
+- **Known limit** — a `limit-wait`-parked runner still holds a concurrency slot (future work).
 
 ## More
 
