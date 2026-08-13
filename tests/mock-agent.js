@@ -53,7 +53,7 @@ const done = () => {
   if (taskId) {
     fs.mkdirSync('.schedule-tasks-data/reports', { recursive: true });
     fs.writeFileSync(`.schedule-tasks-data/reports/${taskId}.md`,
-      `# Report — ${taskId} (dev-done)\nmock executor report\n`, 'utf8');
+      `# Report — ${taskId} (done)\nmock executor report\n`, 'utf8');
     const { execFileSync } = require('node:child_process');
     try {
       execFileSync('git', ['add', '-A'], { stdio: 'ignore' });

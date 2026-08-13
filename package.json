@@ -1,6 +1,6 @@
 {
   "name": "schedule-task",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Scheduled, resumable automation tasks (dev/test/audit) driven by a single Node CLI — dispatcher, resilient runner, status, cancel, archive, batch merge. Git is the only transport; no runtime npm dependencies. Three-layer separation: install.sh installs the global CLI (tool); `schedule-task install` binds the knowledge skill into each agent (zero code); per-project .schedule-tasks-data (data).",
   "bin": {
     "schedule-task": "bin/schedule-task.js"

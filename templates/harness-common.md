@@ -1,7 +1,7 @@
 # Shared task rules — READ THIS FILE FIRST (mandatory)
 
-This file is part of every task prompt (dev and audit). Read it in full before
-starting — its rules are binding constraints on the plan you generate.
+This file is part of every task prompt. Read it in full before starting — its
+rules are binding constraints on the plan you generate.
 
 ## Knowledge graph (graphify — optional, saves tokens)
 - Before starting real work, refresh the graph if `graphify-out/graph.json` exists:
@@ -20,10 +20,11 @@ starting — its rules are binding constraints on the plan you generate.
 
 ## Execution protocol
 - Work in small increments; commit at each checkpoint.
-- Fan out sub-agents where it helps: for dev, one implementer per work item plus an
+- Fan out sub-agents where it helps: one implementer per work item plus an
   INDEPENDENT strict reviewer (never the implementer); loop implement → review until the
-  reviewer passes every acceptance item — "差不多 / good enough" counts as fail. For audit,
-  fan out independent review perspectives (see your harness).
+  reviewer passes every acceptance item — "差不多 / good enough" counts as fail.
+- The full chain (dev → mutation check → self-review → testing → report) is a single
+  task. Complete each stage before moving to the next.
 
 ## TEST_HEADER convention (for tests you create)
 Every test file you CREATE must start with a structured header block, in the repo's

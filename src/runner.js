@@ -48,8 +48,10 @@ async function runOne({ repo, id, config }) {
   const env = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
   const branch = env.branch;
   const promptRel = env.prompt_file;
-  const model = env.model || 'opus';
   const agent = env.agent || 'claude'; // absent = claude (back-compat)
+  // Resolve model: envelope override → worker profile dev model → default.
+  const workerProfile = env.worker ? core.findWorker(repo, env.worker) : null;
+  const model = env.model || (workerProfile && workerProfile.models && workerProfile.models.dev) || 'opus';
   if (!agents.KNOWN_AGENTS.includes(agent)) {
     // Fail fast — never let an unknown agent silently run (or retry 60x).
     core.writeState(stateDir, id, 'failed');
@@ -60,8 +62,8 @@ async function runOne({ repo, id, config }) {
 
   core.writePid(stateDir, id, process.pid); // cancel kills the process group via this
   core.writeState(stateDir, id, 'running');
-  log(`start id=${id} branch=${branch} model=${model} agent=${agent}`);
-  note(`start agent=${agent} model=${model} branch=${branch}`);
+  log(`start id=${id} branch=${branch} model=${model} agent=${agent}${workerProfile ? ` profile=${workerProfile.name}` : ''}`);
+  note(`start agent=${agent} model=${model} branch=${branch}${workerProfile ? ` profile=${workerProfile.name}` : ''}`);
   notify('started', `agent=${agent} model=${model} branch=${branch}`);
 
   // --- isolated worktree on the task branch (created fresh, or reused on resume) ---
@@ -190,29 +192,27 @@ async function runOne({ repo, id, config }) {
   const finished = sawSentinel && commitAfter !== commitBefore;
 
   const inbox = config.inbox;
-  const type = env.type || 'dev';
   const reportRel = path.join('.schedule-tasks-data', 'reports', `${id}.md`);
   const reportFile = path.join(wt, reportRel);
 
   // Executor final message (fallback body when the executor wrote no report).
   const tail = lastExecutorMessage(logDir);
 
-  // v3 flow: the executor integrated the latest dev into its branch (rebase,
-  // conflicts resolved in ITS worktree) and committed the report. The runner
-  // verifies mechanically that dev is an ancestor of the branch — then the
-  // merge is a conflict-free fast-forward, done in the main checkout.
+  // v3.3 flow: the executor ran the full chain (dev → mutation → review → test),
+  // integrated the latest dev into its branch (rebase, conflicts resolved in ITS
+  // worktree) and committed the consolidated report. The runner verifies
+  // mechanically that dev is an ancestor of the branch — then the merge is a
+  // conflict-free fast-forward, done in the main checkout.
   let state;
   let merged = false;
   if (finished) {
     git(repo, ['fetch', 'origin', inbox]);
     merged = git(repo, ['merge-base', '--is-ancestor', `origin/${inbox}`, branch]).ok;
-    state = merged
-      ? (type === 'audit' ? 'audit-pass' : 'dev-done')
-      : (type === 'audit' ? 'audit-fail' : 'merge-failed');
+    state = merged ? 'done' : 'merge-failed';
   } else {
-    // Never finished (or audit verdict = fail): the branch is pushed for the
-    // author; nothing is merged, the worktree stays for inspection.
-    state = type === 'audit' ? 'audit-fail' : 'failed';
+    // Never finished: the branch is pushed for the author; nothing is merged,
+    // the worktree stays for inspection.
+    state = 'failed';
   }
 
   // Stamp the report: the runner owns the H1 state marker + metadata; the
@@ -231,7 +231,7 @@ async function runOne({ repo, id, config }) {
     } else {
       // Race: dev advanced after the ancestor check. Never force a merge.
       git(repo, ['merge', '--abort']);
-      state = type === 'audit' ? 'audit-fail' : 'merge-failed';
+      state = 'merge-failed';
       merged = false;
       log('ff merge into ' + inbox + ' failed (dev advanced) — marking ' + state);
     }
@@ -246,7 +246,7 @@ async function runOne({ repo, id, config }) {
       log(`merged into ${inbox}; worktree remove failed (left in place)`);
     }
   } else {
-    // Failure / merge-failed / audit-fail: keep the workspace, push the branch
+    // Failure / merge-failed: keep the workspace, push the branch
     // so the author can inspect or re-dispatch against it.
     const p = git(repo, ['push', 'origin', branch]);
     if (!p.ok) log(`push ${branch} failed (non-fatal)`);

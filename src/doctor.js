@@ -128,6 +128,15 @@ function doctor({ repo }) {
     row('.machine', `role=${machine.role} id=${machine.id}`, machine.role === 'author' || machine.role === 'worker');
     const subs = ['tasks', 'prompts', 'reports', 'batches', 'state', 'hooks'];
     for (const s of subs) row(`data/${s}/`, fs.existsSync(path.join(dataRoot, s)) ? 'present' : 'MISSING', fs.existsSync(path.join(dataRoot, s)));
+    // Workers profile (optional but recommended).
+    const workers = core.readWorkers(repo);
+    const wFile = path.join(dataRoot, 'workers.json');
+    if (fs.existsSync(wFile)) {
+      row('workers.json', `${workers.length} worker(s) configured`, workers.length > 0);
+      if (workers.length === 0) console.log('  hint: workers.json exists but is empty — add workers with `schedule-task profile add`');
+    } else {
+      row('workers.json', 'not configured — run `schedule-task profile add`', true);
+    }
     row('gitignore', fs.existsSync(path.join(repo, '.gitignore')) ? 'present' : 'missing (init will add)', true);
   } else {
     row('.schedule-tasks-data', 'not initialized — run `schedule-task init`', false);

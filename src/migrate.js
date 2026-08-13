@@ -23,8 +23,9 @@ function migrate({ repo }) {
     console.log(`migrate: data schema v${core.SCHEMA_VERSION} is current — nothing to do.`);
     return { exit: 0 };
   }
-  // migrate-needed: v0 (unversioned) → v1 stamps the version file; the data
-  // formats themselves did not change in this release, so no rewriting.
+  // v0 → v1: stamps the version file (no data rewrite needed).
+  // v1 → v2: state words simplified (dev-done → done, audit states removed);
+  // back-compat aliases in core.js normalize old values transparently.
   console.log(`migrate: upgrading data schema v${check.data} -> v${core.SCHEMA_VERSION}`);
   core.writeSchemaVersion(core.dataDir(repo));
   console.log('migrate: done — commit the changes (rollback = revert that commit) and re-run your command.');

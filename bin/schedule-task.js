@@ -11,7 +11,6 @@
 
 require('../src/agents.js');
 require('../src/archive.js');
-require('../src/audit.js');
 require('../src/cancel.js');
 require('../src/cli.js');
 require('../src/core.js');
@@ -22,6 +21,7 @@ require('../src/init.js');
 require('../src/install.js');
 require('../src/log.js');
 require('../src/migrate.js');
+require('../src/profile.js');
 require('../src/runner.js');
 require('../src/status.js');
 require('../src/watchdog.js');

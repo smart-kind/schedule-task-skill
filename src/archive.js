@@ -1,10 +1,10 @@
 'use strict';
-// archive.js — AUTHOR-side batch close-out (v3). Archives the CURRENT batch
-// (or an explicitly named one): every member (dev + audit) must be terminal;
-// writes a batch summary report (per-member outcomes + a Follow-ups template),
-// moves the batch manifest + member envelopes + prompts into their archive/
-// dirs, commits and pushes. After this the current batch is empty and a new
-// batch may start. This is the step that ENDS a batch — whatever its outcome.
+// archive.js — AUTHOR-side batch close-out (v3.3). Archives the CURRENT batch
+// (or an explicitly named one): every member must be terminal; writes a batch
+// summary report (per-member outcomes + a Follow-ups template), moves the batch
+// manifest + member envelopes + prompts into their archive/ dirs, commits and
+// pushes. After this the current batch is empty and a new batch may start.
+// This is the step that ENDS a batch — whatever its outcome.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,8 +33,7 @@ function archive({ repo, batchId }) {
     return { exit: 1 };
   }
 
-  // Members: the manifest's tasks plus any envelope carrying this batch id
-  // (audit tasks), in manifest order (audit tasks after their dev tasks).
+  // Members: the manifest's tasks, in manifest order.
   const tasksDir = path.join(dataRoot, 'tasks');
   let files = [];
   try {
@@ -80,7 +79,7 @@ function archive({ repo, batchId }) {
   for (const m of members) {
     const st = core.reportState(repo, m.id);
     counts[st] = (counts[st] || 0) + 1;
-    lines.push(`- ${m.id} (${m.type || 'dev'}): ${st}`);
+    lines.push(`- ${m.id}: ${st}`);
   }
   const summary = [
     `# Batch report — ${batch.id} (archived)`,

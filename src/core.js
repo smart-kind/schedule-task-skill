@@ -35,7 +35,7 @@ function pinEnv() {
 //   .schedule-tasks-data/version > SCHEMA_VERSION  → CLI too old, refuse
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 // Read the committed data schema version from a data root. Returns null when
 // the data dir is absent (nothing to check); an existing data dir without a
@@ -163,16 +163,16 @@ function writeMachine(stateDirPath, role, id) {
 // State files — first line is the state word (load-bearing contract)
 // ---------------------------------------------------------------------------
 
-// v3 state words: pending (implicit) / running / dev-done / audit-pass /
-// audit-fail / merge-failed / failed / cancelled. The v1–v2 word `done` is
-// accepted everywhere and normalized to `dev-done` (back-compat).
-const STATE_ALIASES = { done: 'dev-done' };
+// v3 state words: pending (implicit) / running / done / merge-failed /
+// failed / cancelled.  Back-compat aliases: v1–v2 `done` is kept; `dev-done`
+// normalises to `done`; the old audit states map to `done` / `failed`.
+const STATE_ALIASES = { 'dev-done': 'done', 'audit-pass': 'done', 'audit-fail': 'failed' };
 function normalizeState(word) {
   return STATE_ALIASES[word] || word;
 }
 
 // Terminal (no further dispatch) states. Anything else is pending/running.
-const TERMINAL_STATES = ['dev-done', 'audit-pass', 'audit-fail', 'merge-failed', 'failed', 'cancelled'];
+const TERMINAL_STATES = ['done', 'merge-failed', 'failed', 'cancelled'];
 function isTerminalState(word) {
   return TERMINAL_STATES.includes(normalizeState(word));
 }
@@ -197,7 +197,33 @@ function currentBatch(repo) {
   }
 }
 
-// Copy the prompt templates (harness-common + the dev/audit harnesses) into the
+// Workers profile — .schedule-tasks-data/workers.json (committed).
+// An array of worker entries, each with id (W01…), name, agent (kimi|cc), and
+// per-stage models. Read by dispatch (worker selection during dev create) and
+// by the runner (resolve models per stage). Absence = no workers configured.
+function readWorkers(repo) {
+  const f = path.join(dataDir(repo), 'workers.json');
+  if (!fs.existsSync(f)) return [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return Array.isArray(raw) ? raw : (raw.workers || []);
+  } catch {
+    return [];
+  }
+}
+
+function writeWorkers(repo, workers) {
+  const f = path.join(dataDir(repo), 'workers.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, `${JSON.stringify({ workers }, null, 2)}\n`, 'utf8');
+}
+
+// Find a worker entry by its id (e.g. "W01"). null when not found.
+function findWorker(repo, workerId) {
+  return readWorkers(repo).find((w) => w.id === workerId) || null;
+}
+
+// Copy the prompt templates (harness-common + the dev harness) into the
 // repo's committed data dir, so worktree prompts can reference them. Templates
 // are always refreshed from the skill copy they run under.
 function ensureTemplates(repo) {
@@ -228,8 +254,8 @@ function reportState(repo, id) {
 }
 
 function reportMarker(text) {
-  const m = /\((done|failed|dev-done|merge-failed|audit-pass|audit-fail)\)/.exec(text);
-  return m ? normalizeState(m[1]) : 'dev-done';
+  const m = /\((done|failed|merge-failed)\)/.exec(text);
+  return m ? normalizeState(m[1]) : 'done';
 }
 
 // Absent file = 'pending' (implicit).
@@ -374,6 +400,9 @@ module.exports = {
   normalizeState,
   isTerminalState,
   currentBatch,
+  readWorkers,
+  writeWorkers,
+  findWorker,
   ensureTemplates,
   reportState,
   appendNotes,

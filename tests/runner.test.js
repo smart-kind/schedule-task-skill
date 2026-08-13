@@ -1,5 +1,5 @@
 'use strict';
-// runner.test.js — (a) happy dev path (executor merges to dev), (a2) audit-pass,
+// runner.test.js — (a) happy path (executor merges to dev → done),
 // (a3) executor never merges → merge-failed, (b) limit → park → resume.
 // Port of runtime-self-test.sh sections (a) and (b), against the Node runner and
 // the shared mock coding-agent CLI (which performs the v3 merge protocol).
@@ -28,7 +28,7 @@ function reportOnDev(repo, id) {
   return helpers.git(repo, ['show', `dev:.schedule-tasks-data/reports/${id}.md`]);
 }
 
-test('(a) runner happy path: executor merges to dev → dev-done, workspace cleaned', async () => {
+test('(a) runner happy path: executor merges to dev → done, workspace cleaned', async () => {
   const t = helpers.tmpdir();
   try {
     const { repo } = helpers.makeRepo(t, 'repo-a');
@@ -46,12 +46,12 @@ test('(a) runner happy path: executor merges to dev → dev-done, workspace clea
     process.env.FL_LOG_ROOT = logRoot;
 
     const res = await runOne({ repo, id: 't-happy', config: readConfig() });
-    assert.equal(res.status, 'dev-done');
-    assert.equal(core.readState(core.stateDir(repo), 't-happy'), 'dev-done');
+    assert.equal(res.status, 'done');
+    assert.equal(core.readState(core.stateDir(repo), 't-happy'), 'done');
 
     // The report reached dev (the author's channel) — read from the merged branch.
     const report = reportOnDev(repo, 't-happy');
-    assert.match(report, /\(dev-done\)/);
+    assert.match(report, /\(done\)/);
     assert.match(report, /mock executor report/);
 
     // Workspace is disposable: worktree + task branch gone.
@@ -61,36 +61,11 @@ test('(a) runner happy path: executor merges to dev → dev-done, workspace clea
     const notes = fs.readFileSync(path.join(core.stateDir(repo), 't-happy.notes'), 'utf8');
     assert.match(notes, /start agent=claude model=opus branch=automation\/t-happy/);
     assert.match(notes, /TASK_DONE detected/);
-    assert.match(notes, /finished dev-done/);
+    assert.match(notes, /finished done/);
 
     assert.equal(fs.readFileSync(path.join(logRoot, 't-happy', 'session_id'), 'utf8'), 'sess-123');
     const calls = fs.readFileSync(path.join(t, 'mock-calls'), 'utf8');
     assert.match(calls, /agent=claude mode=fresh sessid=-/);
-  } finally {
-    fs.rmSync(t, { recursive: true, force: true });
-  }
-});
-
-test('(a2) audit task happy path → audit-pass', async () => {
-  const t = helpers.tmpdir();
-  try {
-    const { repo } = helpers.makeRepo(t, 'repo-a2');
-    helpers.addTask(repo, { id: 't-audit', type: 'audit', branch: 'automation/t-audit' },
-      'audit the work; end with the TASK_DONE sentinel');
-
-    const mock = helpers.installMock(t);
-    resetMockEnv(t);
-    process.env.CLAUDE_BIN = mock;
-    process.env.KIMI_BIN = mock;
-    process.env.MOCK_AGENT = 'claude';
-    process.env.MOCK_BEHAVIOR = 'happy';
-    process.env.MOCK_TASK_ID = 't-audit';
-    process.env.FL_LOG_ROOT = path.join(t, 'logroot-a2');
-
-    const res = await runOne({ repo, id: 't-audit', config: readConfig() });
-    assert.equal(res.status, 'audit-pass');
-    assert.equal(core.readState(core.stateDir(repo), 't-audit'), 'audit-pass');
-    assert.match(reportOnDev(repo, 't-audit'), /\(audit-pass\)/);
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }
@@ -157,8 +132,8 @@ test('(b) runner limit → park → resume (agent=kimi, LIMIT_FALLBACK=1)', asyn
     process.env.LIMIT_FALLBACK = '1';
 
     const res = await runOne({ repo, id: 't-limit', config: readConfig() });
-    assert.equal(res.status, 'dev-done');
-    assert.equal(core.readState(core.stateDir(repo), 't-limit'), 'dev-done');
+    assert.equal(res.status, 'done');
+    assert.equal(core.readState(core.stateDir(repo), 't-limit'), 'done');
 
     const calls = fs.readFileSync(path.join(t, 'mock-calls'), 'utf8');
     assert.match(calls, /agent=kimi mode=resume sessid=sess-123/, 'resume happened with the parked session');

@@ -165,7 +165,7 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
     const id = env.id;
     if (!id) continue;
     const st = core.normalizeState(core.readState(stateDir, id));
-    if (st === 'running' || st === 'dev-done' || st === 'audit-pass' || st === 'audit-fail'
+    if (st === 'running' || st === 'done'
         || st === 'merge-failed' || st === 'failed' || st === 'cancelled') continue;
 
     // Machine assignment: a task naming a worker is only launched there.
@@ -184,10 +184,10 @@ function tick({ repo, config, stateDir, machine, dlog, spawnRunner }) {
       }
     }
 
-    // depends_on: every listed task id must be dev-done (or an old `done`).
+    // depends_on: every listed task id must be done.
     let blocked = '';
     for (const dep of env.depends_on || []) {
-      if (core.normalizeState(core.readState(stateDir, dep)) !== 'dev-done') {
+      if (core.normalizeState(core.readState(stateDir, dep)) !== 'done') {
         blocked = dep;
         break;
       }

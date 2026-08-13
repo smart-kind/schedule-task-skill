@@ -1,7 +1,8 @@
 # TODO 计划：执行者（worker）模型集合配置
 
-> 状态：**计划中，未实现**（2026-08 记录）。本文档只记录需求与待办方向，供后续实现时参考。
-> 实现前需与 `docs/refactor-three-layer-separation.md` 的三层分离原则对齐（配置属于数据层，排除源码仓库/技能目录管理）。
+> 状态：**已实现**（v3.3.0, 2026-08）。Workers profile 系统已整合到 `.schedule-tasks-data/workers.json`
+> （committed），通过 `schedule-task profile` 子命令管理。per-stage 模型配置已实现。
+> 本文档保留作为设计历史参考。
 
 ---
 

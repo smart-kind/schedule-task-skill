@@ -53,7 +53,7 @@ test('help prints the command list', async () => {
   }
   const text = out.join('');
   assert.match(text, /Usage: schedule-task/);
-  assert.match(text, /audit/);
+  assert.match(text, /profile/);
   assert.doesNotMatch(text, /merge-batch/);
 });
 
@@ -150,7 +150,7 @@ test('write command hard-stops on stale (unversioned) data schema until migrate 
 
     const codeM = await main(['migrate', '-r', repo]);
     assert.equal(codeM, 0, 'migrate succeeds');
-    assert.equal(fs.readFileSync(path.join(helpers.dataRoot(repo), 'version'), 'utf8').trim(), '1');
+    assert.equal(fs.readFileSync(path.join(helpers.dataRoot(repo), 'version'), 'utf8').trim(), '2');
   } finally {
     fs.rmSync(t, { recursive: true, force: true });
   }

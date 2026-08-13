@@ -55,7 +55,7 @@ function cancel({ repo, target, reason, config }) {
 
   const result = { killed: 0, cancelled: [], refused: [] };
 
-  const TERMINAL = ['dev-done', 'audit-pass', 'audit-fail', 'merge-failed', 'failed', 'cancelled'];
+  const TERMINAL = ['done', 'merge-failed', 'failed', 'cancelled'];
 
   // cancel_one <id> <why> — kill if running, mark cancelled, record.
   const cancelOne = (id, why) => {

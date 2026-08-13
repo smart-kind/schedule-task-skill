@@ -1,6 +1,6 @@
 'use strict';
 // cli.js — command table and arg parsing for the schedule-task CLI.
-// One binary, every runtime concern: init / status / dev / audit / run / cancel /
+// One binary, every runtime concern: init / status / dev / profile / run / cancel /
 // archive / log / doctor / install / self-test.
 
 const fs = require('node:fs');
@@ -45,14 +45,15 @@ Commands:
   dev
       Gate check for starting a NEW dev batch: refuses while a batch is still
       open (archive it first). The author's agent then runs the create flow:
-      interview -> draft envelope + prompt (templates/dev-plan-harness.md) ->
-      review -> commit to the inbox branch.
-  audit [--readonly|--edit] [--per-task|--batch]
-      AUTHOR-side: create audit task(s) for the current batch's dev-done work.
-      Default --edit (may rewrite meaningless tests + write new ones),
-      --readonly = review only. Default --per-task (one audit per dev task),
-      --batch = one audit over the whole batch. The audit agent defaults to the
-      OPPOSITE of the developer's agent (independent mind).
+      interview -> select worker -> draft envelope + prompt -> review -> commit
+      to the inbox branch. Workers execute the full chain (dev → mutation check
+      → review → test → report → merge).
+  profile [list|add|edit|remove]
+      Worker profile management. No args = list all workers. Sub-commands:
+        add <name> <agent>           — add a worker (agent: kimi|cc)
+        edit <wid> <stage> <model>   — set a stage's model (stage: dev|review|mutation|test)
+        remove <wid>                 — remove a worker
+      Profile is stored in .schedule-tasks-data/workers.json (committed).
   init [--role author|worker] [--id <mid>] [--yes]
       Install the runtime into the current repo: create .schedule-tasks-data/,
       declare this machine's role+id, merge gitignore, check dependencies,
@@ -65,8 +66,8 @@ Commands:
   run <id>
       Resilient per-task runner (spawned detached by the watchdog; also run by
       hand): worktree isolation, CLI-session resume, usage-limit park,
-      sentinel+commit verification. The executor merges its own branch to dev;
-      the runner verifies, stamps the report and cleans up.
+      sentinel+commit verification. The executor runs the full chain, merges
+      its own branch to dev; the runner verifies, stamps the report and cleans up.
   cancel <id>|--all [reason...]
       Cancel pending/running tasks; kills a running runner's process group.
       Cascades to tasks that depend on the cancelled id. Worker-local only.
@@ -225,7 +226,7 @@ async function main(argv) {
       }
       const { runOne } = require('./runner.js');
       const result = await runOne({ repo, id, config });
-      return result.status === 'dev-done' || result.status === 'audit-pass' ? 0 : 1;
+      return result.status === 'done' ? 0 : 1;
     }
     case 'dev': {
       const g = gate(false);
@@ -235,22 +236,72 @@ async function main(argv) {
       // still open — the author must close it with `archive` first.
       const batch = core.currentBatch(repo);
       if (batch) {
-        console.error(`dev: current batch ${batch.id} is still open — close it first: schedule-task archive (or finish + audit it)`);
+        console.error(`dev: current batch ${batch.id} is still open — close it first: schedule-task archive`);
         return 1;
       }
       console.log('dev: no current batch — you may start a new dev batch.');
       console.log('Draft the envelope(s) + prompt(s) from templates/dev-plan-harness.md +');
       console.log('templates/harness-common.md (in .schedule-tasks-data/templates/), review,');
       console.log('then commit them to the inbox branch.');
+      // Show available workers from the profile.
+      const workers = core.readWorkers(repo);
+      if (workers.length > 0) {
+        console.log('\nAvailable workers:');
+        for (const w of workers) {
+          const models = (w.models || {});
+          const devModel = models.dev || '(default)';
+          console.log(`  ${w.id}  ${w.name}  agent=${w.agent || '?'}  dev_model=${devModel}`);
+        }
+      } else {
+        console.log('\nNo workers configured — run: schedule-task profile add <name> <agent>');
+      }
       return 0;
     }
-    case 'audit': {
-      const g = gate(true);
+    case 'profile': {
+      const g = gate(false);
       if (g.err) { console.error(`schedule-task: ${g.err}`); return 1; }
-      const { audit } = require('./audit.js');
-      const mode = flags['--readonly'] ? 'readonly' : 'edit';
-      const perTask = !flags['--batch'];
-      return audit({ repo, mode, perTask }).exit;
+      const { profileList, profileAdd, profileEdit, profileRemove } = require('./profile.js');
+      const sub = args[0];
+      if (!sub || sub === 'list') {
+        return profileList({ repo }).exit;
+      }
+      if (sub === 'add') {
+        const name = args[1];
+        const agent = args[2];
+        if (!name || !agent) {
+          console.error('usage: schedule-task profile add <name> <agent>');
+          return 2;
+        }
+        return profileAdd({ repo, name, agent }).exit;
+      }
+      if (sub === 'edit') {
+        const workerId = args[1];
+        const stage = args[2];
+        const model = args[3];
+        if (!workerId || !stage || !model) {
+          console.error('usage: schedule-task profile edit <worker-id> <stage> <model>');
+          return 2;
+        }
+        return profileEdit({ repo, workerId, stage, model }).exit;
+      }
+      if (sub === 'remove') {
+        const workerId = args[1];
+        if (!workerId) {
+          console.error('usage: schedule-task profile remove <worker-id>');
+          return 2;
+        }
+        return profileRemove({ repo, workerId }).exit;
+      }
+      // No recognised sub-command — maybe the user typed just `profile W01 dev sonnet`
+      // (shorthand for edit). Try to interpret: 3 args = edit, 2 args = add?
+      if (args.length === 3) {
+        return profileEdit({ repo, workerId: sub, stage: args[1], model: args[2] }).exit;
+      }
+      if (args.length === 2) {
+        return profileAdd({ repo, name: sub, agent: args[1] }).exit;
+      }
+      console.error(`profile: unknown sub-command '${sub}' (want list|add|edit|remove)`);
+      return 2;
     }
     case 'cancel': {
       const g = gate(true);
